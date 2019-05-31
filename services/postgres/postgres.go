@@ -19,18 +19,21 @@ func InitDB(connStr string) {
 }
 
 // RunMigrations runs migrations for the database.
-func RunMigrations(connStr string) {
+func RunMigrations(connStr string, untilTime int64) {
 	InitDB(connStr);
 
 	for _, migration := range []MigrationEntry{ 
 		(*migrations.Initial)(nil), 
 	} {
-		migration.Up(Db)
+		if(migration.Id() >= untilTime) {
+			migration.Up(Db)
+		}
 	}
 }
 
 // MigrationEntry is used as a base interface for migrations
 type MigrationEntry interface {
+	Id() int64
 	Up(*sql.DB) error
 	Down(*sql.DB) error
 }
