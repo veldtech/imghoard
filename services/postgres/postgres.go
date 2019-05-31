@@ -20,8 +20,9 @@ func InitDB(connStr string) {
 
 // RunMigrations runs migrations for the database.
 func RunMigrations(connStr string, untilTime int64) {
-	InitDB(connStr);
-
+	if Db == nil {
+		InitDB(connStr);
+	}
 	for _, migration := range []MigrationEntry{ 
 		(*migrations.Initial)(nil), 
 	} {
