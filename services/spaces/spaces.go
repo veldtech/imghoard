@@ -23,7 +23,6 @@ type SpacesAPIClient struct {
 }
 
 // New creates and saves a DigitalOcean CDN API client.
-// TODO: maybe not wrap the minioClient now that it is changed from aws-s3
 func New() *SpacesAPIClient {
 	spacesKey, valid := os.LookupEnv("DO_ACCESS")
 	if !valid {
