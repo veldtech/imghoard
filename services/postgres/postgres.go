@@ -6,25 +6,20 @@ import (
 	migrations "github.com/mikibot/imghoard/services/postgres/migrations"
 )
 
-// Db is the database connection pool 
-var Db *sql.DB
+type postgresClient sql.DB
 
 // InitDB creates the initial connection pool for the database.
-func InitDB(connStr string) {
+func InitDB(connStr string) *sql.DB {
 	db, err := sql.Open("postgres", connStr)
 	if(err != nil) {
 		log.Panicf("Unable to launch postgres with reason: %s", err)
 	}
-	Db = db
+	return db;
 }
 
 // RunMigrations runs migrations for the database.
-func RunMigrations(connStr string, untilTime int64) error {
-	if Db == nil {
-		InitDB(connStr);
-	}
-
-	rows, err := Db.Query(`SELECT EXISTS (
+func (db *postgresClient) RunMigrations(connStr string, untilTime int64) error {
+	rows, err := db.Query(`SELECT EXISTS (
 		SELECT 1
 		FROM   information_schema.tables 
 		WHERE  table_schema = 'public'
