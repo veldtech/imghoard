@@ -1,6 +1,8 @@
 package main
 
 import (
+	framework "github.com/mikibot/imghoard/framework"
+	imagehandler "github.com/mikibot/imghoard/services/imagehandler"
 	"log"
 	"os"
 	"strconv"
@@ -15,24 +17,51 @@ import (
 )
 
 func main() {
-	log.Println("Loading .env")
-	err := godotenv.Load()
-	if err != nil {
-		log.Panicf("Error loading .env file: %s", err)
-	}
+	loadEnv()
 
 	log.Print("Creating snowflake generator")
-	snowflake.InitSnowflake()
+	uuidGen := snowflake.InitSnowflake()
 
 	log.Println("Connecting to pg")
-
 	connStr := createConnectionString()
-	pg.InitDB(connStr)
-
-	err = pg.Db.Ping()
+	db, err := pg.New(connStr)
 	if err != nil {
-		log.Panicf("Could not connect to postgres with connection string '%s': %s", connStr, err)
+		log.Panicf("Could not connect to PostgreSQL because of reason: %s", err)
 	}
+
+	spacesAccess, exists := os.LookupEnv("DO_ACCESS")
+	if !exists {
+		log.Panic("Could not load env variable DO_ACCESS")
+		os.Exit(1)
+	}
+	spacesSecret, exists := os.LookupEnv("DO_SECRET")
+	if !exists {
+		log.Panic("Could not load env variable DO_SECRET")
+		os.Exit(1)
+	}
+	spacesEndpoint, exists := os.LookupEnv("DO_ENDPOINT")
+	if !exists {
+		log.Panic("Could not load env variable DO_ENDPOINT")
+		os.Exit(1)
+	}
+	spacesFolder, exists := os.LookupEnv("DO_FOLDER")
+	if !exists {
+		log.Panic("Could not load env variable DO_FOLDER")
+		os.Exit(1)
+	}
+	spacesBucket, exists := os.LookupEnv("DO_BUCKET")
+	if !exists {
+		log.Panic("Could not load env variable DO_BUCKET")
+		os.Exit(1)
+	}
+
+	spacesClient := spaces.New(spaces.Config{
+		AccessKey: spacesAccess,
+		SecretKey: spacesSecret,
+		Endpoint: spacesEndpoint,
+		Folder: spacesFolder,
+		Bucket: spacesBucket,
+	}, uuidGen)
 
 	log.Println("Opening web service")
 
@@ -46,12 +75,10 @@ func main() {
 		port = int(portInt)
 	}
 
-	config := &atreugo.Config{
+	server := atreugo.New(&atreugo.Config{
 		Host: "0.0.0.0",
 		Port: port,
-	}
-
-	server := atreugo.New(config)
+	})
 
 	{
 		baseURL := "127.0.0.1/"
@@ -61,18 +88,45 @@ func main() {
 		}
 
 		var imageView = images.ImageView{
-			SpacesClient: spaces.New(),
-			BaseURL:      baseURL,
+			BaseURL: baseURL,
+			Handler: imagehandler.New(baseURL, spacesClient, db),
 		}
 
-		server.Path("GET", "/images", imageView.GetImage)
-		//server.Path("GET", "images/:id", imageView.GetImageByID)
-		server.Path("POST", "/images", imageView.PostImage)
-		server.Path("GET", "/tags/:id", imageView.GetTag)
+		var mockImageView = images.ImageView {
+			BaseURL: baseURL,
+			Handler: imagehandler.NewMock(baseURL, spacesClient, db),
+		}
+
+		{ // GetImage Route
+ 			view := framework.New(imageView.GetImage)
+			view.AddTenancy("testing", mockImageView.GetImage)
+			server.Path("GET", "/images", view.Route)
+		}
+
+		{ // PostImage Route
+			view := framework.New(imageView.PostImage)
+			view.AddTenancy("testing", mockImageView.PostImage)
+			server.Path("POST", "/images", view.Route)
+		}
+
+		{ // GetTag Route
+			view := framework.New(imageView.GetTag)
+			view.AddTenancy("testing", mockImageView.GetTag)
+			server.Path("GET", "/tags/:id", view.Route)
+		}
 	}
 	err = server.ListenAndServe()
 	if err != nil {
 		panic(err)
+	}
+}
+
+func loadEnv() {
+	log.Println("Loading .env")
+	err := godotenv.Load()
+	if err != nil {
+		log.Panicf("Error loading .env file: %s", err)
+		os.Exit(1)
 	}
 }
 

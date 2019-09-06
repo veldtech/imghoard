@@ -1,13 +1,14 @@
 package imghoard
 
+import "github.com/savsgio/atreugo/v7"
+
 // ErrorResponse is the default error
 type ErrorResponse struct {
 	Error string
 }
 
-// New creates a new error response
-func New(reason string) ErrorResponse {
-	return ErrorResponse {
-		Error: reason,
+func NewJSON(reason string) atreugo.JSON {
+	return atreugo.JSON {
+		"error": reason,
 	}
 }
