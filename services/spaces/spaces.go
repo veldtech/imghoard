@@ -24,39 +24,15 @@ type ApiClient struct {
 type Config struct {
 	AccessKey string
 	SecretKey string
-	Endpoint string
-	Bucket string
-	Folder string
+	Endpoint  string
+	Bucket    string
+	Folder    string
 }
 
 // New creates and saves a DigitalOcean CDN API client.
-func New() *SpacesAPIClient {
-	spacesKey, valid := os.LookupEnv("DO_ACCESS")
-	if !valid {
-		log.Fatalln("Could not create DigitalOcean spaces api instance, missing DO_ACCESS.")
-	}
-
-	spacesSecret, valid := os.LookupEnv("DO_SECRET")
-	if !valid {
-		log.Fatalln("Could not create DigitalOcean spaces api instance, missing DO_ACCESS.")
-	}
-
-	endpoint, valid := os.LookupEnv("DO_ENDPOINT")
-	if !valid {
-		log.Fatalln("Could not create DigitalOcean space API instance, missing DO_ENDPOINT.")
-	}
-
-	spacesBucket, valid := os.LookupEnv("DO_BUCKET")
-	if !valid {
-		log.Fatalln("Could not create DigitalOcean space API instance, missing DO_BUCKET.")
-	}
-
-	spacesFolder, valid := os.LookupEnv("DO_FOLDER")
-	if !valid {
-		spacesFolder = ""
-	}
-
-	minioClient, err := minio.New(endpoint, spacesKey, spacesSecret, false)
+// TODO: maybe not wrap the minioClient now that it is changed from aws-s3
+func New(config Config, idGenerator *uuid.SnowflakeService) *ApiClient {
+	minioClient, err := minio.New(config.Endpoint, config.AccessKey, config.SecretKey, false)
 	if err != nil {
 		log.Fatalln(err)
 	}
