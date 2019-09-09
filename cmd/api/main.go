@@ -1,11 +1,12 @@
 package main
 
 import (
-	framework "github.com/mikibot/imghoard/framework"
-	imagehandler "github.com/mikibot/imghoard/services/imagehandler"
 	"log"
 	"os"
 	"strconv"
+
+	framework "github.com/mikibot/imghoard/framework"
+	imagehandler "github.com/mikibot/imghoard/services/imagehandler"
 
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
@@ -15,6 +16,11 @@ import (
 	images "github.com/mikibot/imghoard/views"
 	"github.com/savsgio/atreugo/v7"
 )
+
+func corsMiddleware(ctx *atreugo.RequestCtx) (int, error) {
+	ctx.Response.Header.Add("Access-Control-Allow-Origin", "*")
+	return 200, nil
+}
 
 func main() {
 	loadEnv()
@@ -58,9 +64,9 @@ func main() {
 	spacesClient := spaces.New(spaces.Config{
 		AccessKey: spacesAccess,
 		SecretKey: spacesSecret,
-		Endpoint: spacesEndpoint,
-		Folder: spacesFolder,
-		Bucket: spacesBucket,
+		Endpoint:  spacesEndpoint,
+		Folder:    spacesFolder,
+		Bucket:    spacesBucket,
 	}, uuidGen)
 
 	log.Println("Opening web service")
@@ -79,6 +85,7 @@ func main() {
 		Host: "0.0.0.0",
 		Port: port,
 	})
+	server.UseMiddleware(corsMiddleware)
 
 	{
 		baseURL := "127.0.0.1/"
@@ -92,15 +99,21 @@ func main() {
 			Handler: imagehandler.New(baseURL, spacesClient, db),
 		}
 
-		var mockImageView = images.ImageView {
+		var mockImageView = images.ImageView{
 			BaseURL: baseURL,
 			Handler: imagehandler.NewMock(baseURL, spacesClient, db),
 		}
 
 		{ // GetImage Route
- 			view := framework.New(imageView.GetImage)
+			view := framework.New(imageView.GetImage)
 			view.AddTenancy("testing", mockImageView.GetImage)
 			server.Path("GET", "/images", view.Route)
+		}
+
+		{ // GetImageByID Route
+			view := framework.New(imageView.GetImageByID)
+			view.AddTenancy("testing", mockImageView.GetImageByID)
+			server.Path("GET", "/images/:id", view.Route)
 		}
 
 		{ // PostImage Route

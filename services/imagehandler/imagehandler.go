@@ -55,7 +55,7 @@ type mockService struct {
 
 func (handler *mockService) AddImage(submission spaces.ImageSubmission) (models.Image, error) {
 	fmt.Printf("reaching Mock.AddImage")
-	return image, nil
+	return models.Image{}, nil
 }
 func (handler *service) AddImage(submission spaces.ImageSubmission) (models.Image, error) {
 	fmt.Printf("reaching Prod.AddImage")

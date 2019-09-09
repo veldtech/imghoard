@@ -1,9 +1,8 @@
 package imghoard
 
 import (
-	"fmt"
 	"github.com/savsgio/atreugo/v7"
-	)
+)
 
 const DefaultRoute = "_router:default"
 const TenancyHeader = "x-tenancy"
@@ -36,4 +35,3 @@ func (router *TenancyRouter) Route(ctx *atreugo.RequestCtx) error {
 	// Header exists, but no valid case seem to exist. run default view
 	return router.routes[DefaultRoute](ctx)
 }
-

@@ -3,11 +3,12 @@ package imghoard
 import (
 	"errors"
 	"fmt"
-	image "github.com/mikibot/imghoard/services/imagehandler"
-	imghoard "github.com/mikibot/imghoard/services/snowflake"
 	"log"
 	"strconv"
 	"strings"
+
+	image "github.com/mikibot/imghoard/services/imagehandler"
+	uuid "github.com/mikibot/imghoard/services/snowflake"
 
 	jsoniter "github.com/json-iterator/go"
 	models "github.com/mikibot/imghoard/models"
@@ -19,15 +20,15 @@ var json = jsoniter.ConfigFastest
 
 // ImageResult is the user facing model for images.
 type ImageResult struct {
-	ID   imghoard.Snowflake	`json:"id"`
-	Tags []string			`json:"tags"`
-	URL  string				`json:"url"`
+	ID   uuid.Snowflake `json:"id"`
+	Tags []string       `json:"tags"`
+	URL  string         `json:"url"`
 }
 
 // ImageView is the dataset for the image controller
 type ImageView struct {
-	BaseURL      string
-	Handler		 image.ImageHandler
+	BaseURL string
+	Handler image.ImageHandler
 }
 
 // GetImage gets a random image with optional tags
@@ -48,7 +49,7 @@ func (view ImageView) GetImage(ctx *atreugo.RequestCtx) error {
 	var images []models.Image
 	if args.Has("tags") {
 		tags := strings.Split(string(args.Peek("tags")), " ")
-		i, err := view.Handler.FindImages(tags, 100, page * 100)
+		i, err := view.Handler.FindImages(tags, 100, page*100)
 		if err != nil {
 			return ctx.JSONResponse(errors.New(err.Error()), 500)
 		}
@@ -71,7 +72,28 @@ func (view ImageView) GetImage(ctx *atreugo.RequestCtx) error {
 // GetImageByID gets a specific image by ID
 // GET /images/:id
 func (view ImageView) GetImageByID(ctx *atreugo.RequestCtx) error {
-	return nil
+	idStr, ok := ctx.UserValue("id").(string)
+	if !ok {
+		return models.InternalServerError(ctx)
+	}
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		return models.BadRequest(ctx, "Invalid ID provided")
+	}
+	image, err := view.Handler.GetImage(uuid.Snowflake(id))
+	if err != nil {
+		return models.InternalServerError(ctx)
+	}
+
+	if image.ID == 0 {
+		return models.NotFound(ctx)
+	}
+
+	return ctx.JSONResponse(ImageResult{
+		ID:   image.ID,
+		URL:  image.ImageURL(view.BaseURL),
+		Tags: image.Tags,
+	})
 }
 
 // PostImage allows you to upload an image and set the tags
@@ -112,7 +134,7 @@ func (view ImageView) PatchTag(ctx *atreugo.RequestCtx) error {
 }
 
 func (view ImageView) toImageResult(images []models.Image) []ImageResult {
-	result := make([]ImageResult, len(images));
+	result := make([]ImageResult, len(images))
 	for i := 0; i < len(images); i++ {
 		result[i] = ImageResult{
 			ID:   images[i].ID,

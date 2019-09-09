@@ -1,8 +1,9 @@
 package imghoard
 
 import (
-	sf "github.com/mikibot/imghoard/services/snowflake"
 	"strings"
+
+	sf "github.com/mikibot/imghoard/services/snowflake"
 )
 
 // Image is the model that contains all the data for submitted images.
@@ -33,4 +34,3 @@ func extension(contentType string) string {
 func imageURL(id sf.Snowflake, contentType string, baseURL string) string {
 	return baseURL + id.ToBase64() + "." + extension(contentType)
 }
-
