@@ -7,19 +7,26 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"os"
 	"strings"
 
 	models "github.com/mikibot/imghoard/models"
-	snowflake "github.com/mikibot/imghoard/services/snowflake"
+	uuid "github.com/mikibot/imghoard/services/snowflake"
 	"github.com/minio/minio-go/v6"
 )
 
-// SpacesAPIClient contains data for S3 bucket calls
-type SpacesAPIClient struct {
-	folder string
-	bucket string
-	s3     *minio.Client
+// ApiClient contains data for S3 bucket calls
+type ApiClient struct {
+	config  Config
+	s3      *minio.Client
+	uuidGen *uuid.SnowflakeService
+}
+
+type Config struct {
+	AccessKey string
+	SecretKey string
+	Endpoint string
+	Bucket string
+	Folder string
 }
 
 // New creates and saves a DigitalOcean CDN API client.
@@ -54,10 +61,10 @@ func New() *SpacesAPIClient {
 		log.Fatalln(err)
 	}
 
-	return &SpacesAPIClient{
-		folder: spacesFolder,
-		bucket: spacesBucket,
-		s3:     minioClient,
+	return &ApiClient{
+		config:  config,
+		s3:      minioClient,
+		uuidGen: idGenerator,
 	}
 }
 
@@ -68,7 +75,7 @@ type ImageSubmission struct {
 }
 
 // UploadData uploads your data to the preferred do client
-func (c *SpacesAPIClient) UploadData(image string) (models.Image, error) {
+func (c *ApiClient) UploadData(image string) (models.Image, error) {
 	segments := strings.Split(image, ",")
 	if len(segments) != 2 {
 		return models.Image{}, errors.New("Invalid image payload")
@@ -101,13 +108,13 @@ func (c *SpacesAPIClient) UploadData(image string) (models.Image, error) {
 		return models.Image{}, fmt.Errorf("encoding format '%s' not supported", string(encoding))
 	}
 
-	id := snowflake.GenerateID()
+	id := c.uuidGen.GenerateID()
 
 	extension := strings.Split(string(contentType), "/")
 	if len(extension) != 2 {
 		return models.Image{}, errors.New("invalid ContentType")
 	}
-	var filePath = id.Base32() + "." + string(extension[1])
+	var filePath = id.ToBase64() + "." + string(extension[1])
 
 	decoded, err := base64.StdEncoding.DecodeString(segments[1])
 	if err != nil {
@@ -115,8 +122,8 @@ func (c *SpacesAPIClient) UploadData(image string) (models.Image, error) {
 	}
 
 	_, err = c.s3.PutObject(
-		c.bucket,
-		c.folder+filePath,
+		c.config.Bucket,
+		c.config.Folder+filePath,
 		bytes.NewReader(decoded),
 		int64(len(decoded)),
 		minio.PutObjectOptions{
@@ -128,7 +135,7 @@ func (c *SpacesAPIClient) UploadData(image string) (models.Image, error) {
 	}
 
 	return models.Image{
-		ID:          int64(id),
+		ID:          id,
 		ContentType: string(contentType),
 	}, nil
 }

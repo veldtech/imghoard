@@ -13,4 +13,6 @@
 *.env
 
 # dependencies
+.idea/
+.vscode/
 vendor/

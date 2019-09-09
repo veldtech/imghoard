@@ -7,7 +7,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bwmarrin/snowflake"
+	image "github.com/mikibot/imghoard/services/imagehandler"
+	uuid "github.com/mikibot/imghoard/services/snowflake"
+
 	jsoniter "github.com/json-iterator/go"
 	models "github.com/mikibot/imghoard/models"
 	spaces "github.com/mikibot/imghoard/services/spaces"
@@ -16,15 +18,22 @@ import (
 
 var json = jsoniter.ConfigFastest
 
+// ImageResult is the user facing model for images.
+type ImageResult struct {
+	ID   uuid.Snowflake `json:"id"`
+	Tags []string       `json:"tags"`
+	URL  string         `json:"url"`
+}
+
 // ImageView is the dataset for the image controller
 type ImageView struct {
-	BaseURL      string
-	SpacesClient *spaces.SpacesAPIClient
+	BaseURL string
+	Handler image.ImageHandler
 }
 
 // GetImage gets a random image with optional tags
 // GET /images?page=1[tags={...}]
-func (i ImageView) GetImage(ctx *atreugo.RequestCtx) error {
+func (view ImageView) GetImage(ctx *atreugo.RequestCtx) error {
 	page := 0
 	args := ctx.QueryArgs()
 	if args.Has("page") {
@@ -37,77 +46,101 @@ func (i ImageView) GetImage(ctx *atreugo.RequestCtx) error {
 		}
 	}
 
-	var images []models.ImageResult
+	var images []models.Image
 	if args.Has("tags") {
 		tags := strings.Split(string(args.Peek("tags")), " ")
-		i, err := models.GetTags(i.BaseURL, 100, page*100, tags)
+		i, err := view.Handler.FindImages(tags, 100, page*100)
 		if err != nil {
-			return ctx.JSONResponse(models.New(err.Error()), 500)
+			return ctx.JSONResponse(errors.New(err.Error()), 500)
 		}
 		images = i
 	} else {
-		i, err := models.Get(i.BaseURL, 100, page*100)
+		i, err := view.Handler.GetImages(100, page*100)
 		if err != nil {
-			return ctx.JSONResponse(models.New(err.Error()), 500)
+			return ctx.JSONResponse(errors.New(err.Error()), 500)
 		}
 		images = i
 	}
 
 	if images == nil ||
 		len(images) == 0 {
-		return ctx.JSONResponse(models.New("not found"), 404)
+		return ctx.JSONResponse(errors.New("not found"), 404)
 	}
-
-	return ctx.JSONResponse(images)
+	return ctx.JSONResponse(view.toImageResult(images))
 }
 
 // GetImageByID gets a specific image by ID
 // GET /images/:id
-func (i ImageView) GetImageByID(ctx *atreugo.RequestCtx) error {
-	return nil
+func (view ImageView) GetImageByID(ctx *atreugo.RequestCtx) error {
+	idStr, ok := ctx.UserValue("id").(string)
+	if !ok {
+		return models.InternalServerError(ctx)
+	}
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		return models.BadRequest(ctx, "Invalid ID provided")
+	}
+	image, err := view.Handler.GetImage(uuid.Snowflake(id))
+	if err != nil {
+		return models.InternalServerError(ctx)
+	}
+
+	if image.ID == 0 {
+		return models.NotFound(ctx)
+	}
+
+	return ctx.JSONResponse(ImageResult{
+		ID:   image.ID,
+		URL:  image.ImageURL(view.BaseURL),
+		Tags: image.Tags,
+	})
 }
 
 // PostImage allows you to upload an image and set the tags
 // POST /images
 // - Requires authentication
-func (i ImageView) PostImage(ctx *atreugo.RequestCtx) error {
+func (view ImageView) PostImage(ctx *atreugo.RequestCtx) error {
 	var newPost = spaces.ImageSubmission{}
 	json.Unmarshal(ctx.PostBody(), &newPost)
 	if len(newPost.Data) == 0 {
-		return errors.New("Invalid content: image.data is empty")
+		return errors.New("invalid content: image.data is empty")
 	}
 
-	image, err := i.SpacesClient.UploadData(newPost.Data)
+	image, err := view.Handler.AddImage(newPost)
 	if err != nil {
 		return ctx.JSONResponse(atreugo.JSON{
 			"error": err.Error(),
 		}, 500)
 	}
 
-	image.Tags = newPost.Tags
-	err = image.Insert()
-	if err != nil {
-		return ctx.JSONResponse(atreugo.JSON{
-			"error": err.Error(),
-		})
-	}
-
 	return ctx.JSONResponse(atreugo.JSON{
 		"file": fmt.Sprintf("%s%s.%s",
-			i.BaseURL,
-			snowflake.ID(image.ID).Base32(),
+			view.BaseURL,
+			image.ID.ToBase64(),
 			image.Extension()),
 	})
 }
 
 // GetTag gets a tag by ID and shows its metadata
 // GET /tags/{tagName}
-func (i ImageView) GetTag(ctx *atreugo.RequestCtx) error {
+func (view ImageView) GetTag(ctx *atreugo.RequestCtx) error {
 	return nil
 }
 
 // PatchTag updates a tag's metadata
 // PATCH /tags/{tagName}
-func (i ImageView) PatchTag(ctx *atreugo.RequestCtx) error {
+func (view ImageView) PatchTag(ctx *atreugo.RequestCtx) error {
 	return nil
+}
+
+func (view ImageView) toImageResult(images []models.Image) []ImageResult {
+	result := make([]ImageResult, len(images))
+	for i := 0; i < len(images); i++ {
+		result[i] = ImageResult{
+			ID:   images[i].ID,
+			Tags: images[i].Tags,
+			URL:  images[i].ImageURL(view.BaseURL),
+		}
+	}
+	return result
 }
