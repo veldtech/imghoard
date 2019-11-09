@@ -64,6 +64,9 @@ func (handler *service) AddImage(submission spaces.ImageSubmission) (models.Imag
 
 	tx, err := handler.database.Begin()
 	if err != nil {
+		if err := tx.Rollback(); err != nil {
+			return models.Image{}, stacktrace.Propagate(err, "")
+		}
 		return models.Image{}, stacktrace.Propagate(err, "")
 	}
 
@@ -82,6 +85,9 @@ func (handler *service) AddImage(submission spaces.ImageSubmission) (models.Imag
 			image.ID,
 			tag)
 		if err != nil {
+			if err := tx.Rollback(); err != nil {
+				return models.Image{}, stacktrace.Propagate(err, "")
+			}
 			return models.Image{}, stacktrace.Propagate(err, "")
 		}
 
@@ -90,13 +96,16 @@ func (handler *service) AddImage(submission spaces.ImageSubmission) (models.Imag
 			image.ID,
 			tag)
 		if err != nil {
-			if err := tx.Commit(); err != nil {
+			if err := tx.Rollback(); err != nil {
 				return models.Image{}, stacktrace.Propagate(err, "")
 			}
 			return models.Image{}, stacktrace.Propagate(err, "")
 		}
 	}
 
+	if err := tx.Commit(); err != nil {
+		return models.Image{}, stacktrace.Propagate(err, "")
+	}
 	return image, nil
 }
 
