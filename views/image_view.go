@@ -1,9 +1,7 @@
 package imghoard
 
 import (
-	"errors"
 	"fmt"
-	"log"
 	"strconv"
 	"strings"
 
@@ -13,21 +11,21 @@ import (
 	jsoniter "github.com/json-iterator/go"
 	models "github.com/mikibot/imghoard/models"
 	spaces "github.com/mikibot/imghoard/services/spaces"
-	"github.com/savsgio/atreugo/v7"
+	"github.com/savsgio/atreugo/v9"
 )
 
 var json = jsoniter.ConfigFastest
 
 // ImageResult is the user facing model for images.
 type ImageResult struct {
-	ID   uuid.Snowflake `json:"id"`
+	Id   uuid.Snowflake `json:"id"`
 	Tags []string       `json:"tags"`
-	URL  string         `json:"url"`
+	Url  string         `json:"url"`
 }
 
 // ImageView is the dataset for the image controller
 type ImageView struct {
-	BaseURL string
+	BaseUrl string
 	Handler image.ImageHandler
 }
 
@@ -40,7 +38,6 @@ func (view ImageView) GetImage(ctx *atreugo.RequestCtx) error {
 		p, err := strconv.ParseInt(string(args.Peek("page")), 0, 16)
 		if err != nil {
 			page = 0
-			log.Print(err)
 		} else {
 			page = int(p)
 		}
@@ -51,22 +48,22 @@ func (view ImageView) GetImage(ctx *atreugo.RequestCtx) error {
 		tags := strings.Split(string(args.Peek("tags")), " ")
 		i, err := view.Handler.FindImages(tags, 100, page*100)
 		if err != nil {
-			return ctx.JSONResponse(errors.New(err.Error()), 500)
+			return models.Error(ctx, 500, err)
 		}
 		images = i
 	} else {
 		i, err := view.Handler.GetImages(100, page*100)
 		if err != nil {
-			return ctx.JSONResponse(errors.New(err.Error()), 500)
+			return models.Error(ctx, 500, err)
 		}
 		images = i
 	}
 
 	if images == nil ||
 		len(images) == 0 {
-		return ctx.JSONResponse(errors.New("not found"), 404)
+		return models.ErrorStr(ctx, 404, "no images found")
 	}
-	return ctx.JSONResponse(view.toImageResult(images))
+	return models.JSON(ctx, view.toImageResult(images))
 }
 
 // GetImageByID gets a specific image by ID
@@ -74,24 +71,24 @@ func (view ImageView) GetImage(ctx *atreugo.RequestCtx) error {
 func (view ImageView) GetImageByID(ctx *atreugo.RequestCtx) error {
 	idStr, ok := ctx.UserValue("id").(string)
 	if !ok {
-		return models.InternalServerError(ctx)
+		return models.ErrorStr(ctx, 400, "no 'id' parameter was provided")
 	}
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		return models.BadRequest(ctx, "Invalid ID provided")
+		return models.Error(ctx, 400, err)
 	}
 	image, err := view.Handler.GetImage(uuid.Snowflake(id))
 	if err != nil {
-		return models.InternalServerError(ctx)
+		return models.Error(ctx, 500, err)
 	}
 
 	if image.ID == 0 {
-		return models.NotFound(ctx)
+		return models.ErrorStr(ctx, 404, "no image was found")
 	}
 
-	return ctx.JSONResponse(ImageResult{
-		ID:   image.ID,
-		URL:  image.ImageURL(view.BaseURL),
+	return models.JSON(ctx, ImageResult{
+		Id:   image.ID,
+		Url:  image.ImageURL(view.BaseUrl),
 		Tags: image.Tags,
 	})
 }
@@ -100,24 +97,28 @@ func (view ImageView) GetImageByID(ctx *atreugo.RequestCtx) error {
 // POST /images
 // - Requires authentication
 func (view ImageView) PostImage(ctx *atreugo.RequestCtx) error {
+	fmt.Println("ok")
+
 	var newPost = spaces.ImageSubmission{}
-	json.Unmarshal(ctx.PostBody(), &newPost)
+	err := json.Unmarshal(ctx.PostBody(), &newPost)
+	if err != nil {
+		return models.Error(ctx, 400, err)
+	}
+
 	if len(newPost.Data) == 0 {
-		return errors.New("invalid content: image.data is empty")
+		return models.ErrorStr(ctx, 400, "image.data is empty")
 	}
 
 	image, err := view.Handler.AddImage(newPost)
 	if err != nil {
-		return ctx.JSONResponse(atreugo.JSON{
-			"error": err.Error(),
-		}, 500)
+		return models.Error(ctx, 500, err)
 	}
 
-	return ctx.JSONResponse(atreugo.JSON{
+	return models.JSON(ctx, atreugo.JSON{
 		"file": fmt.Sprintf("%s%s.%s",
-			view.BaseURL,
+			view.BaseUrl,
 			image.ID.ToBase64(),
-			image.Extension()),
+			image.Extension()),	
 	})
 }
 
@@ -137,9 +138,9 @@ func (view ImageView) toImageResult(images []models.Image) []ImageResult {
 	result := make([]ImageResult, len(images))
 	for i := 0; i < len(images); i++ {
 		result[i] = ImageResult{
-			ID:   images[i].ID,
+			Id:   images[i].ID,
 			Tags: images[i].Tags,
-			URL:  images[i].ImageURL(view.BaseURL),
+			Url:  images[i].ImageURL(view.BaseUrl),
 		}
 	}
 	return result

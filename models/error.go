@@ -1,42 +1,29 @@
 package imghoard
 
-import "github.com/savsgio/atreugo/v7"
+import (
+	"github.com/palantir/stacktrace"
+	"github.com/savsgio/atreugo/v9"
+)
 
 // ErrorResponse is the default error
 type ErrorResponse struct {
-	Error string
+	RequestId uint64
+	Message string
 }
 
-// Deprecated
-func NewJSON(reason string) atreugo.JSON {
-	return newJSON(500, reason)
+func Error(ctx *atreugo.RequestCtx, code int, err error) error {
+	return ErrorStr(ctx, code, stacktrace.Propagate(err, "").Error())
+}
+func ErrorStr(ctx *atreugo.RequestCtx, code int, err string) error {
+	ctx.Response.SetBody([]byte(err))
+	ctx.Response.SetStatusCode(code)
+	return ctx.Next()
 }
 
-func BadRequest(ctx *atreugo.RequestCtx, reason ...string) error {
-	return ctx.JSONResponse(
-		newJSON(400, getOrDefault("Bad request", reason...)), 400)
-}
-
-func NotFound(ctx *atreugo.RequestCtx, reason ...string) error {
-	return ctx.JSONResponse(newJSON(404, getOrDefault("Not found", reason...)), 404)
-}
-
-func InternalServerError(ctx *atreugo.RequestCtx, reason ...string) error {
-	return ctx.JSONResponse(newJSON(500, getOrDefault("Internal server error", reason...)), 500)
-}
-
-func newJSON(code int, reason string) atreugo.JSON {
-	return atreugo.JSON{
-		"code":  code,
-		"error": reason,
+func JSON(ctx *atreugo.RequestCtx, json interface{}) error {
+	err := ctx.JSONResponse(json)
+	if err != nil {
+		return Error(ctx, 400, err)
 	}
-}
-
-func getOrDefault(d string, v ...string) string {
-	for _, x := range v {
-		if len(x) > 0 {
-			return x
-		}
-	}
-	return d
+	return ctx.Next()
 }
