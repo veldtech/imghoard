@@ -1,6 +1,9 @@
 package main
 
 import (
+	"fmt"
+	"github.com/json-iterator/go/extra"
+	"github.com/mikibot/imghoard/middleware"
 	"log"
 	"os"
 	"strconv"
@@ -14,15 +17,17 @@ import (
 	snowflake "github.com/mikibot/imghoard/services/snowflake"
 	spaces "github.com/mikibot/imghoard/services/spaces"
 	images "github.com/mikibot/imghoard/views"
-	"github.com/savsgio/atreugo/v7"
+	"github.com/savsgio/atreugo/v9"
 )
 
-func corsMiddleware(ctx *atreugo.RequestCtx) (int, error) {
+func corsMiddleware(ctx *atreugo.RequestCtx) error {
 	ctx.Response.Header.Add("Access-Control-Allow-Origin", "*")
-	return 200, nil
+	return ctx.Next()
 }
 
 func main() {
+	extra.SetNamingStrategy(extra.LowerCaseWithUnderscores)
+
 	loadEnv()
 
 	log.Print("Creating snowflake generator")
@@ -81,11 +86,14 @@ func main() {
 		port = int(portInt)
 	}
 
+	addr := fmt.Sprintf("0.0.0.0:%d", port)
+	fmt.Print(addr)
 	server := atreugo.New(&atreugo.Config{
-		Host: "0.0.0.0",
-		Port: port,
+		Addr: addr,
 	})
-	server.UseMiddleware(corsMiddleware)
+
+	server.UseBefore(corsMiddleware)
+	server.UseAfter(middleware.NewErrorMapper())
 
 	{
 		baseURL := "127.0.0.1/"
@@ -95,12 +103,12 @@ func main() {
 		}
 
 		var imageView = images.ImageView{
-			BaseURL: baseURL,
+			BaseUrl: baseURL,
 			Handler: imagehandler.New(baseURL, spacesClient, db),
 		}
 
 		var mockImageView = images.ImageView{
-			BaseURL: baseURL,
+			BaseUrl: baseURL,
 			Handler: imagehandler.NewMock(baseURL, spacesClient, db),
 		}
 
@@ -128,6 +136,7 @@ func main() {
 			server.Path("GET", "/tags/:id", view.Route)
 		}
 	}
+
 	err = server.ListenAndServe()
 	if err != nil {
 		panic(err)

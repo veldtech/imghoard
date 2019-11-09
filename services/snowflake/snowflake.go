@@ -2,9 +2,10 @@ package imghoard
 
 import (
 	"encoding/binary"
-	"github.com/bwmarrin/snowflake"
-	"github.com/btcsuite/btcutil/base58"
 	"log"
+
+	"github.com/btcsuite/btcutil/base58"
+	"github.com/bwmarrin/snowflake"
 )
 
 type Snowflake snowflake.ID
@@ -25,7 +26,7 @@ func InitSnowflake() *SnowflakeService {
 	if err != nil {
 		log.Panicf("Could not create snowflake generator: %s", err)
 	}
-	return &SnowflakeService {
+	return &SnowflakeService{
 		node: gen,
 	}
 }

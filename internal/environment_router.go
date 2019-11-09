@@ -11,7 +11,7 @@ type EnvironmentRouter interface {
 }
 
 type internalRouter struct {
-	views map[string]*atreugo.View
+	views       map[string]*atreugo.View
 	defaultView string
 }
 
