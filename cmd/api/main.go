@@ -90,6 +90,7 @@ func main() {
 	fmt.Print(addr)
 	server := atreugo.New(&atreugo.Config{
 		Addr: addr,
+		MaxRequestBodySize: 20 * 2048 * 2048 * 2048,
 	})
 
 	server.UseBefore(corsMiddleware)

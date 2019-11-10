@@ -22,7 +22,7 @@ func handleErrorMapping(ctx *atreugo.RequestCtx) error {
 		return nil
 	}
 
-	if code >= 500 {
+	if code >= 200 {
 		fmt.Printf("ERROR: %d\n%s", ctx.ID(), string(ctx.Response.Body()))
 	}
 

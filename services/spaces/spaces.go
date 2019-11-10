@@ -1,9 +1,7 @@
 package imghoard
 
 import (
-	"bufio"
 	"bytes"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"log"
@@ -46,72 +44,39 @@ func New(config Config, idGenerator *uuid.SnowflakeService) *ApiClient {
 
 // ImageSubmission is in need of documentation
 type ImageSubmission struct {
-	Data string
+	Data []byte
 	Tags []string
+	ContentType string
 }
 
 // UploadData uploads your data to the preferred do client
-func (c *ApiClient) UploadData(image string) (models.Image, error) {
-	segments := strings.Split(image, ",")
-	if len(segments) != 2 {
-		return models.Image{}, errors.New("Invalid image payload")
-	}
-
-	var metadata = bufio.NewReader(strings.NewReader(segments[0]))
-
-	header, err := metadata.ReadBytes(':')
-	if err != nil {
-		return models.Image{}, err
-	}
-	header = bytes.Trim(header, ":")
-
-	if string(header) != "data" {
-		return models.Image{}, errors.New("header mismatch: Header does not start with 'data'")
-	}
-
-	contentType, err := metadata.ReadBytes(';')
-	if err != nil {
-		return models.Image{}, err
-	}
-	contentType = bytes.TrimRight(contentType, ";")
-
-	encoding, _, err := metadata.ReadLine()
-	if err != nil {
-		return models.Image{}, err
-	}
-
-	if string(encoding) != "base64" {
-		return models.Image{}, fmt.Errorf("encoding format '%s' not supported", string(encoding))
-	}
-
+func (c *ApiClient) UploadData(image ImageSubmission) (models.Image, error) {
 	id := c.uuidGen.GenerateID()
 
-	extension := strings.Split(string(contentType), "/")
-	if len(extension) != 2 {
-		return models.Image{}, errors.New("invalid ContentType")
-	}
-	var filePath = id.ToBase64() + "." + string(extension[1])
-
-	decoded, err := base64.StdEncoding.DecodeString(segments[1])
-	if err != nil {
-		return models.Image{}, err
+	contentType := strings.Split(image.ContentType, "/")
+	if len(contentType) < 2 {
+		return models.Image{}, errors.New("invalid content type")
 	}
 
-	_, err = c.s3.PutObject(
+	filePath := fmt.Sprintf("%s.%s", id.ToBase64(), contentType[1])
+
+	_, err := c.s3.PutObject(
 		c.config.Bucket,
 		c.config.Folder+filePath,
-		bytes.NewReader(decoded),
-		int64(len(decoded)),
+		bytes.NewReader(image.Data),
+		int64(len(image.Data)),
 		minio.PutObjectOptions{
 			UserMetadata: map[string]string{"x-amz-acl": "public-read"},
-			ContentType:  string(contentType),
+			ContentType:  image.ContentType,
 		})
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	return models.Image{
+	x := models.Image{
 		ID:          id,
-		ContentType: string(contentType),
-	}, nil
+		ContentType: image.ContentType,
+	}
+	fmt.Print(x)
+	return x, nil
 }

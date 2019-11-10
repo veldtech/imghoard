@@ -35,6 +35,7 @@ func New(baseURL string, spaces *spaces.ApiClient, database *postgres.Client) Im
 	}
 	return s
 }
+
 func NewMock(baseURL string, spaces *spaces.ApiClient, database *postgres.Client) ImageHandler {
 	var s ImageHandler
 	s = &mockService{
@@ -56,17 +57,15 @@ type mockService struct {
 func (handler *mockService) AddImage(submission spaces.ImageSubmission) (models.Image, error) {
 	return models.Image{}, nil
 }
+
 func (handler *service) AddImage(submission spaces.ImageSubmission) (models.Image, error) {
-	image, err := handler.spacesClient.UploadData(submission.Data)
+	image, err := handler.spacesClient.UploadData(submission)
 	if err != nil {
 		return models.Image{}, stacktrace.Propagate(err, "")
 	}
 
 	tx, err := handler.database.Begin()
 	if err != nil {
-		if err := tx.Rollback(); err != nil {
-			return models.Image{}, stacktrace.Propagate(err, "")
-		}
 		return models.Image{}, stacktrace.Propagate(err, "")
 	}
 

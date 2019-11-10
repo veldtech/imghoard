@@ -1,7 +1,12 @@
 package imghoard
 
 import (
+	"bufio"
+	"bytes"
+	"encoding/base64"
+	"errors"
 	"fmt"
+	"github.com/palantir/stacktrace"
 	"strconv"
 	"strings"
 
@@ -29,6 +34,11 @@ type ImageView struct {
 	Handler image.ImageHandler
 }
 
+type ImageSubmissionJSON struct {
+	Data string
+	Tags []string
+}
+
 // GetImage gets a random image with optional tags
 // GET /images?page=1[tags={...}]
 func (view ImageView) GetImage(ctx *atreugo.RequestCtx) error {
@@ -48,13 +58,13 @@ func (view ImageView) GetImage(ctx *atreugo.RequestCtx) error {
 		tags := strings.Split(string(args.Peek("tags")), " ")
 		i, err := view.Handler.FindImages(tags, 100, page*100)
 		if err != nil {
-			return models.Error(ctx, 500, err)
+			return models.Error(ctx, 500, stacktrace.Propagate(err, ""))
 		}
 		images = i
 	} else {
 		i, err := view.Handler.GetImages(100, page*100)
 		if err != nil {
-			return models.Error(ctx, 500, err)
+			return models.Error(ctx, 500, stacktrace.Propagate(err, ""))
 		}
 		images = i
 	}
@@ -75,11 +85,11 @@ func (view ImageView) GetImageByID(ctx *atreugo.RequestCtx) error {
 	}
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		return models.Error(ctx, 400, err)
+		return models.Error(ctx, 400, stacktrace.Propagate(err, ""))
 	}
 	image, err := view.Handler.GetImage(uuid.Snowflake(id))
 	if err != nil {
-		return models.Error(ctx, 500, err)
+		return models.Error(ctx, 500, stacktrace.Propagate(err, ""))
 	}
 
 	if image.ID == 0 {
@@ -97,21 +107,34 @@ func (view ImageView) GetImageByID(ctx *atreugo.RequestCtx) error {
 // POST /images
 // - Requires authentication
 func (view ImageView) PostImage(ctx *atreugo.RequestCtx) error {
-	fmt.Println("ok")
+	contentType := string(ctx.Request.Header.ContentType())
 
-	var newPost = spaces.ImageSubmission{}
-	err := json.Unmarshal(ctx.PostBody(), &newPost)
-	if err != nil {
-		return models.Error(ctx, 400, err)
+	var submission spaces.ImageSubmission
+	if strings.HasPrefix(contentType, "multipart/form-data") {
+		multiPartSubmission, err := parseMultipartImage(ctx)
+		if err != nil {
+			return models.Error(ctx, 400, stacktrace.Propagate(err, ""))
+		}
+		submission = multiPartSubmission
+	} else {
+		var jsonSubmission ImageSubmissionJSON
+		err := json.Unmarshal(ctx.PostBody(), &jsonSubmission)
+		if err != nil {
+			return models.Error(ctx, 400, stacktrace.Propagate(err, ""))
+		}
+
+		if len(jsonSubmission.Data) == 0 {
+			return models.ErrorStr(ctx, 400, "image.data is empty")
+		}
+		submission, err = parseHTTPImage(jsonSubmission.Data)
+		if err != nil {
+			return models.Error(ctx, 400, stacktrace.Propagate(err, ""))
+		}
+		submission.Tags = jsonSubmission.Tags
 	}
-
-	if len(newPost.Data) == 0 {
-		return models.ErrorStr(ctx, 400, "image.data is empty")
-	}
-
-	image, err := view.Handler.AddImage(newPost)
+	image, err := view.Handler.AddImage(submission)
 	if err != nil {
-		return models.Error(ctx, 500, err)
+		return models.Error(ctx, 500, stacktrace.Propagate(err, ""))
 	}
 
 	return models.JSON(ctx, atreugo.JSON{
@@ -120,6 +143,89 @@ func (view ImageView) PostImage(ctx *atreugo.RequestCtx) error {
 			image.ID.ToBase64(),
 			image.Extension()),	
 	})
+}
+
+func parseMultipartImage(ctx *atreugo.RequestCtx) (spaces.ImageSubmission, error) {
+	form, err := ctx.FormFile("data")
+	if err != nil {
+		return spaces.ImageSubmission{}, models.Error(ctx, 400, stacktrace.Propagate(err, "data"))
+	}
+
+	contentLength := form.Size
+	if contentLength == 0 {
+		return spaces.ImageSubmission{}, stacktrace.Propagate(errors.New("invalid content-length"), "")
+	}
+
+	open, err := form.Open()
+	if err != nil {
+		return spaces.ImageSubmission{}, stacktrace.Propagate(err, "")
+	}
+
+	buffer := make([]byte, contentLength)
+	open.Read(buffer)
+
+	if err != nil {
+		return spaces.ImageSubmission{}, stacktrace.Propagate(err, "")
+	}
+
+	tags := strings.Split(string(ctx.FormValue("tags")), ",")
+	dataType := string(ctx.FormValue("data-type"))
+
+	return spaces.ImageSubmission{
+		ContentType: dataType,
+		Data: buffer,
+		Tags: tags,
+	}, nil
+}
+
+func parseHTTPImage(image string) (spaces.ImageSubmission, error) {
+	segments := strings.Split(image, ",")
+	if len(segments) != 2 {
+		return spaces.ImageSubmission{}, errors.New("invalid image payload")
+	}
+
+	var metadata = bufio.NewReader(strings.NewReader(segments[0]))
+
+	header, err := metadata.ReadBytes(':')
+	if err != nil {
+		return spaces.ImageSubmission{}, err
+	}
+	header = bytes.Trim(header, ":")
+
+	if string(header) != "data" {
+		return spaces.ImageSubmission{}, errors.New("header mismatch: Header does not start with 'data'")
+	}
+
+	contentType, err := metadata.ReadBytes(';')
+	if err != nil {
+		return spaces.ImageSubmission{}, err
+	}
+	contentType = bytes.TrimRight(contentType, ";")
+
+	encoding, _, err := metadata.ReadLine()
+	if err != nil {
+		return spaces.ImageSubmission{}, err
+	}
+
+	if string(encoding) != "base64" {
+		return spaces.ImageSubmission{}, fmt.Errorf("encoding format '%s' not supported", string(encoding))
+	}
+
+	extension := strings.Split(string(contentType), "/")
+	if len(extension) != 2 {
+		return spaces.ImageSubmission{}, errors.New("invalid ContentType")
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(segments[1])
+	if err != nil {
+		return spaces.ImageSubmission{}, err
+	}
+
+	return spaces.ImageSubmission{
+		Data: decoded,
+		ContentType: string(contentType),
+		Tags: nil,
+	}, nil
 }
 
 // GetTag gets a tag by ID and shows its metadata
