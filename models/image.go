@@ -1,12 +1,12 @@
 package imghoard
 
 import (
+	"database/sql"
 	"strings"
 
 	"github.com/bwmarrin/snowflake"
 	"github.com/lib/pq"
 
-	pg "github.com/mikibot/imghoard/services/postgres"
 	sf "github.com/mikibot/imghoard/services/snowflake"
 )
 
@@ -30,8 +30,8 @@ func (img Image) Extension() string {
 }
 
 // Get n amount of images from the
-func Get(baseURL string, amount int, offset int) ([]ImageResult, error) {
-	rows, err := pg.Db.Query(`select f.id, f.contentType, array(select t.name from image_tags 
+func Get(db *sql.DB, baseURL string, amount int, offset int) ([]ImageResult, error) {
+	rows, err := db.Query(`select f.id, f.contentType, array(select t.name from image_tags 
 		it join tag t on it.tag_id = t.id where it.image_id = f.id) as tags	 
 		from image f offset $1 limit $2;`, offset, amount)
 	if err != nil {
@@ -63,8 +63,8 @@ func GetImageByID(id int64) Image {
 }
 
 // GetTags gets with
-func GetTags(baseURL string, amount int, offset int, tags []string) ([]ImageResult, error) {
-	rows, err := pg.Db.Query(`select f.id, f.contentType, array(select t.name from image_tags
+func GetTags(db *sql.DB, baseURL string, amount int, offset int, tags []string) ([]ImageResult, error) {
+	rows, err := db.Query(`select f.id, f.contentType, array(select t.name from image_tags
 		it join tag t on it.tag_id = t.id where it.image_id = f.id) as tags from image
 		f where array(select t.name from image_tags it join tag t on it.tag_id = t.id 
 		where it.image_id = f.id) @> $1 offset $2 limit $3;`,
@@ -96,23 +96,22 @@ func (img Image) ImageURL(baseURL string) string {
 }
 
 // Insert inserts the metadata of the image to the database.
-func (img Image) Insert() error {
-	_, err := pg.Db.Query(
+func (img Image) Insert(db *sql.DB, generator sf.IdGenerator) error {
+	_, err := db.Query(
 		"INSERT INTO image (id, contentType) VALUES ($1, $2);", img.ID, img.ContentType)
 	if err != nil {
 		return err
 	}
-
 	for _, tag := range img.Tags {
-		id := sf.GenerateID()
-		_, err := pg.Db.Query("INSERT INTO tag (id, name) VALUES ($1, $2) ON CONFLICT DO NOTHING;",
+		id := generator.Generate()
+		_, err := db.Query("INSERT INTO tag (id, name) VALUES ($1, $2) ON CONFLICT DO NOTHING;",
 			id,
 			tag)
 		if err != nil {
 			return err
 		}
 
-		_, err = pg.Db.Query("INSERT INTO image_tags(tag_id, image_id) select id, $1 from tag where name = $2;",
+		_, err = db.Query("INSERT INTO image_tags(tag_id, image_id) select id, $1 from tag where name = $2;",
 			img.ID,
 			tag)
 		if err != nil {

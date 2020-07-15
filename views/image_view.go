@@ -1,8 +1,12 @@
 package imghoard
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
+	snowflake2 "github.com/mikibot/imghoard/services/snowflake"
+	"io"
+	"io/ioutil"
 	"log"
 	"strconv"
 	"strings"
@@ -20,6 +24,8 @@ var json = jsoniter.ConfigFastest
 type ImageView struct {
 	BaseURL      string
 	SpacesClient *spaces.SpacesAPIClient
+	Db *sql.DB
+	Generator snowflake2.IdGenerator
 }
 
 // GetImage gets a random image with optional tags
@@ -40,13 +46,13 @@ func (i ImageView) GetImage(ctx *atreugo.RequestCtx) error {
 	var images []models.ImageResult
 	if args.Has("tags") {
 		tags := strings.Split(string(args.Peek("tags")), " ")
-		i, err := models.GetTags(i.BaseURL, 100, page*100, tags)
+		i, err := models.GetTags(i.Db, i.BaseURL, 100, page*100, tags)
 		if err != nil {
 			return ctx.JSONResponse(models.New(err.Error()), 500)
 		}
 		images = i
 	} else {
-		i, err := models.Get(i.BaseURL, 100, page*100)
+		i, err := models.Get(i.Db, i.BaseURL, 100, page*100)
 		if err != nil {
 			return ctx.JSONResponse(models.New(err.Error()), 500)
 		}
@@ -71,10 +77,19 @@ func (i ImageView) GetImageByID(ctx *atreugo.RequestCtx) error {
 // POST /images
 // - Requires authentication
 func (i ImageView) PostImage(ctx *atreugo.RequestCtx) error {
+	if strings.Contains(string(ctx.Request.Header.ContentType()), "multipart/form-data") {
+		return i.uploadImageFromMultipart(ctx)
+	}
+
 	var newPost = spaces.ImageSubmission{}
-	json.Unmarshal(ctx.PostBody(), &newPost)
+	err := json.Unmarshal(ctx.PostBody(), &newPost)
+	if err != nil {
+		log.Println("error: " + err.Error())
+		return errors.New("invalid content: could not read data")
+	}
+
 	if len(newPost.Data) == 0 {
-		return errors.New("Invalid content: image.data is empty")
+		return errors.New("invalid content: image.data is empty")
 	}
 
 	image, err := i.SpacesClient.UploadData(newPost.Data)
@@ -85,7 +100,7 @@ func (i ImageView) PostImage(ctx *atreugo.RequestCtx) error {
 	}
 
 	image.Tags = newPost.Tags
-	err = image.Insert()
+	err = image.Insert(i.Db, i.Generator)
 	if err != nil {
 		return ctx.JSONResponse(atreugo.JSON{
 			"error": err.Error(),
@@ -97,6 +112,48 @@ func (i ImageView) PostImage(ctx *atreugo.RequestCtx) error {
 			i.BaseURL,
 			snowflake.ID(image.ID).Base32(),
 			image.Extension()),
+	})
+}
+
+func (i ImageView) uploadImageFromMultipart(ctx *atreugo.RequestCtx) error {
+	form, err := ctx.MultipartForm()
+	if err != nil {
+		return err
+	}
+
+	if form.File["file"] == nil {
+		return errors.New("cannot find file attached to form")
+	}
+	stream, err := form.File["file"][0].Open()
+	if err != nil {
+		return err
+	}
+
+	imageBytes, err := ioutil.ReadAll(io.Reader(stream))
+	if err != nil {
+		return err
+	}
+
+	imageContentType := form.Value["filetype"]
+	if len(imageContentType) == 0 || imageContentType[0] == "" {
+		return errors.New("validation['filetype']: is empty")
+	}
+
+	tags := strings.Split(strings.ToLower(strings.Join(form.Value["tags"], ",")), ",")
+
+	image, err := i.SpacesClient.UploadDataRaw(imageBytes, imageContentType[0])
+	if err != nil {
+		return err
+	}
+
+	image.Tags = tags
+	err = image.Insert(i.Db, i.Generator)
+	if err != nil {
+		return err
+	}
+
+	return ctx.JSONResponse(atreugo.JSON{
+		"file": fmt.Sprintf("%s%s.%s", i.BaseURL, snowflake.ID(image.ID).Base32(), image.Extension()),
 	})
 }
 

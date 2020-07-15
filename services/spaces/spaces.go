@@ -6,12 +6,13 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"github.com/mikibot/imghoard/config"
+	"github.com/mikibot/imghoard/utils/content_type"
 	"log"
-	"os"
 	"strings"
 
 	models "github.com/mikibot/imghoard/models"
-	snowflake "github.com/mikibot/imghoard/services/snowflake"
+	"github.com/mikibot/imghoard/services/snowflake"
 	"github.com/minio/minio-go/v6"
 )
 
@@ -19,46 +20,23 @@ import (
 type SpacesAPIClient struct {
 	folder string
 	bucket string
-	s3     *minio.Client
+	s3 *minio.Client
+	generator snowflake.IdGenerator
 }
 
 // New creates and saves a DigitalOcean CDN API client.
 // TODO: maybe not wrap the minioClient now that it is changed from aws-s3
-func New() *SpacesAPIClient {
-	spacesKey, valid := os.LookupEnv("DO_ACCESS")
-	if !valid {
-		log.Fatalln("Could not create DigitalOcean spaces api instance, missing DO_ACCESS.")
-	}
-
-	spacesSecret, valid := os.LookupEnv("DO_SECRET")
-	if !valid {
-		log.Fatalln("Could not create DigitalOcean spaces api instance, missing DO_ACCESS.")
-	}
-
-	endpoint, valid := os.LookupEnv("DO_ENDPOINT")
-	if !valid {
-		log.Fatalln("Could not create DigitalOcean space API instance, missing DO_ENDPOINT.")
-	}
-
-	spacesBucket, valid := os.LookupEnv("DO_BUCKET")
-	if !valid {
-		log.Fatalln("Could not create DigitalOcean space API instance, missing DO_BUCKET.")
-	}
-
-	spacesFolder, valid := os.LookupEnv("DO_FOLDER")
-	if !valid {
-		spacesFolder = ""
-	}
-
-	minioClient, err := minio.New(endpoint, spacesKey, spacesSecret, false)
+func New(config config.Config, generator snowflake.IdGenerator) *SpacesAPIClient {
+	minioClient, err := minio.New(config.S3Endpoint, config.S3AccessKey, config.S3SecretKey, false)
 	if err != nil {
 		log.Fatalln(err)
 	}
 
 	return &SpacesAPIClient{
-		folder: spacesFolder,
-		bucket: spacesBucket,
+		folder: config.S3Folder,
+		bucket: config.S3Bucket,
 		s3:     minioClient,
+		generator: generator,
 	}
 }
 
@@ -102,13 +80,13 @@ func (c *SpacesAPIClient) UploadData(image string) (models.Image, error) {
 		return models.Image{}, fmt.Errorf("encoding format '%s' not supported", string(encoding))
 	}
 
-	id := snowflake.GenerateID()
+	id := c.generator.Generate()
 
-	extension := strings.Split(string(contentType), "/")
-	if len(extension) != 2 {
-		return models.Image{}, errors.New("invalid ContentType")
+	content, err := content_type.FromString(string(contentType))
+	if err != nil {
+		return models.Image{}, err
 	}
-	var filePath = id.Base32() + "." + string(extension[1])
+	var filePath = id.Base32() + "." + content.Extension
 
 	decoded, err := base64.StdEncoding.DecodeString(segments[1])
 	if err != nil {
@@ -117,12 +95,12 @@ func (c *SpacesAPIClient) UploadData(image string) (models.Image, error) {
 
 	_, err = c.s3.PutObject(
 		c.bucket,
-		c.folder+filePath,
+		c.folder + filePath,
 		bytes.NewReader(decoded),
 		int64(len(decoded)),
 		minio.PutObjectOptions{
 			UserMetadata: map[string]string{"x-amz-acl": "public-read"},
-			ContentType:  string(contentType),
+			ContentType:  content.ToString(),
 		})
 	if err != nil {
 		log.Fatalln(err)
@@ -130,6 +108,35 @@ func (c *SpacesAPIClient) UploadData(image string) (models.Image, error) {
 
 	return models.Image{
 		ID:          int64(id),
-		ContentType: string(contentType),
+		ContentType: content.ToString(),
 	}, nil
 }
+
+func (c *SpacesAPIClient) UploadDataRaw(image []byte, filename string) (models.Image, error) {
+	contentType, err := content_type.FromString(filename)
+	if err != nil {
+		return models.Image{}, err
+	}
+
+	id := c.generator.Generate()
+	filePath := id.Base32() + "." + contentType.Extension
+
+	_, err = c.s3.PutObject(
+		c.bucket,
+		c.folder + filePath,
+		bytes.NewReader(image),
+		int64(len(image)),
+		minio.PutObjectOptions{
+			UserMetadata: map[string]string{"x-amz-acl": "public-read"},
+			ContentType:  contentType.ToString(),
+		})
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	return models.Image{
+		ID:          int64(id),
+		ContentType: contentType.ToString(),
+	}, nil
+}
+

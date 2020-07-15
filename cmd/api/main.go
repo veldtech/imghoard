@@ -1,68 +1,54 @@
 package main
 
 import (
-	"log"
-	"os"
-	"strconv"
-
-	"github.com/joho/godotenv"
+	"fmt"
 	_ "github.com/lib/pq"
+	"github.com/mikibot/imghoard/config"
 	pg "github.com/mikibot/imghoard/services/postgres"
-	snowflake "github.com/mikibot/imghoard/services/snowflake"
+	"github.com/mikibot/imghoard/services/snowflake"
 	spaces "github.com/mikibot/imghoard/services/spaces"
 	images "github.com/mikibot/imghoard/views"
 	"github.com/savsgio/atreugo/v7"
+	"log"
 )
 
 func main() {
-	log.Println("Loading .env")
-	err := godotenv.Load()
+	log.Println("Loading config")
+	fileConfig, err := config.LoadFromFile("appconfig/secrets.json")
 	if err != nil {
 		log.Panicf("Error loading .env file: %s", err)
 	}
 
 	log.Print("Creating snowflake generator")
-	snowflake.InitSnowflake()
+	idGenerator := snowflake.InitSnowflake()
 
 	log.Println("Connecting to pg")
+	connStr := createConnectionString(fileConfig)
+	db := pg.NewDB(connStr)
 
-	connStr := createConnectionString()
-	pg.InitDB(connStr)
-
-	err = pg.Db.Ping()
+	err = db.Ping()
 	if err != nil {
 		log.Panicf("Could not connect to postgres with connection string '%s': %s", connStr, err)
 	}
 
 	log.Println("Opening web service")
 
-	portStr, exists := os.LookupEnv("PORT")
-	port := 8080
-	if exists {
-		portInt, err := strconv.ParseInt(portStr, 0, 16)
-		if err != nil {
-			log.Panicf("Cannot create port from PORT environmental value %s", err)
-		}
-		port = int(portInt)
-	}
-
-	config := &atreugo.Config{
+	httpConfig := &atreugo.Config{
 		Host: "0.0.0.0",
-		Port: port,
+		Port: 8080,
+		Fasthttp: &atreugo.FasthttpConfig{
+			MaxRequestBodySize: 20 * 1024 * 1024,
+		},
 	}
 
-	server := atreugo.New(config)
+	server := atreugo.New(httpConfig)
 
 	{
-		baseURL := "127.0.0.1/"
-		url, found := os.LookupEnv("URL_BASE")
-		if found {
-			baseURL = url
-		}
-
 		var imageView = images.ImageView{
-			SpacesClient: spaces.New(),
-			BaseURL:      baseURL,
+			BaseURL:      fileConfig.BaseURL,
+			Db: 		  db,
+			Generator:    idGenerator,
+			SpacesClient: spaces.New(fileConfig, idGenerator),
 		}
 
 		server.Path("GET", "/images", imageView.GetImage)
@@ -70,37 +56,24 @@ func main() {
 		server.Path("POST", "/images", imageView.PostImage)
 		server.Path("GET", "/tags/:id", imageView.GetTag)
 	}
+
 	err = server.ListenAndServe()
 	if err != nil {
 		panic(err)
 	}
 }
 
-func createConnectionString() string {
-	connStr := "postgres://"
-	user, exists := os.LookupEnv("PG_USER")
-	if exists {
-		connStr += user
+func createConnectionString(config config.Config) string {
+	connString := fmt.Sprintf(
+		"postgres://%s:%s@%s/%s",
+		config.DatabaseUser,
+		config.DatabasePass,
+		config.DatabaseHost,
+		config.DatabaseSchema)
+
+	if !config.DatabaseUseSSL {
+		connString += "?sslmode=disable"
 	}
 
-	pass, exists := os.LookupEnv("PG_PASS")
-	if exists {
-		connStr += ":" + pass
-	}
-
-	host, exists := os.LookupEnv("PG_HOST")
-	if exists {
-		connStr += "@" + host
-	}
-
-	db, exists := os.LookupEnv("PG_DB")
-	if exists {
-		connStr += "/" + db
-	}
-
-	ssl, exists := os.LookupEnv("PG_SSLMODE")
-	if exists {
-		connStr += "?sslmode=" + ssl
-	}
-	return connStr
+	return connString
 }
