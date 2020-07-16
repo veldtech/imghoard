@@ -3,19 +3,19 @@ package imghoard
 import (
 	"strings"
 
-	sf "github.com/mikibot/imghoard/services/snowflake"
+	"github.com/mikibot/imghoard/services/snowflake"
 )
 
 // Image is the model that contains all the data for submitted images.
 type Image struct {
-	ID          sf.Snowflake
+	ID          snowflake.Snowflake
 	ContentType string
 	Tags        []string
 }
 
 // ImageURL creates a valid URL from the current post metadata
 func (img Image) ImageURL(baseURL string) string {
-	return imageURL(sf.Snowflake(img.ID), img.ContentType, baseURL)
+	return imageURL(img.ID, img.ContentType, baseURL)
 }
 
 // Extension gets the file's extension
@@ -31,6 +31,6 @@ func extension(contentType string) string {
 	return split[1]
 }
 
-func imageURL(id sf.Snowflake, contentType string, baseURL string) string {
+func imageURL(id snowflake.Snowflake, contentType string, baseURL string) string {
 	return baseURL + id.ToBase64() + "." + extension(contentType)
 }

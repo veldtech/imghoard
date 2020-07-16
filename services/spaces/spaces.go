@@ -2,35 +2,26 @@ package imghoard
 
 import (
 	"bytes"
-	"errors"
-	"fmt"
-	"log"
-	"strings"
-
+	"github.com/mikibot/imghoard/config"
 	models "github.com/mikibot/imghoard/models"
 	uuid "github.com/mikibot/imghoard/services/snowflake"
+	"github.com/mikibot/imghoard/utils/content_type"
 	"github.com/minio/minio-go/v6"
+	"github.com/palantir/stacktrace"
+	"log"
 )
 
 // ApiClient contains data for S3 bucket calls
 type ApiClient struct {
-	config  Config
+	config  config.Config
 	s3      *minio.Client
-	uuidGen *uuid.SnowflakeService
-}
-
-type Config struct {
-	AccessKey string
-	SecretKey string
-	Endpoint  string
-	Bucket    string
-	Folder    string
+	uuidGen uuid.IdGenerator
 }
 
 // New creates and saves a DigitalOcean CDN API client.
 // TODO: maybe not wrap the minioClient now that it is changed from aws-s3
-func New(config Config, idGenerator *uuid.SnowflakeService) *ApiClient {
-	minioClient, err := minio.New(config.Endpoint, config.AccessKey, config.SecretKey, false)
+func New(config config.Config, idGenerator uuid.IdGenerator) *ApiClient {
+	minioClient, err := minio.New(config.S3Endpoint, config.S3AccessKey, config.S3SecretKey, false)
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -48,21 +39,20 @@ type ImageSubmission struct {
 	Tags []string
 	ContentType string
 }
-
 // UploadData uploads your data to the preferred do client
 func (c *ApiClient) UploadData(image ImageSubmission) (models.Image, error) {
-	id := c.uuidGen.GenerateID()
+	id := c.uuidGen.Generate()
 
-	contentType := strings.Split(image.ContentType, "/")
-	if len(contentType) < 2 {
-		return models.Image{}, errors.New("invalid content type")
+	contentType, err := content_type.FromString(image.ContentType)
+	if err != nil {
+		return models.Image{}, stacktrace.Propagate(err, "")
 	}
 
-	filePath := fmt.Sprintf("%s.%s", id.ToBase64(), contentType[1])
+	filePath := id.ToBase64() + "." + contentType.Extension
 
-	_, err := c.s3.PutObject(
-		c.config.Bucket,
-		c.config.Folder+filePath,
+	_, err = c.s3.PutObject(
+		c.config.S3Bucket,
+		c.config.S3Folder + filePath,
 		bytes.NewReader(image.Data),
 		int64(len(image.Data)),
 		minio.PutObjectOptions{
@@ -73,10 +63,37 @@ func (c *ApiClient) UploadData(image ImageSubmission) (models.Image, error) {
 		log.Fatalln(err)
 	}
 
-	x := models.Image{
+	return  models.Image{
 		ID:          id,
 		ContentType: image.ContentType,
-	}
-	fmt.Print(x)
-	return x, nil
+	}, nil
 }
+
+func (c *ApiClient) UploadDataRaw(image []byte, filename string) (models.Image, error) {
+	contentType, err := content_type.FromString(filename)
+	if err != nil {
+		return models.Image{}, err
+	}
+
+	id := c.uuidGen.Generate()
+	filePath := id.ToBase64() + "." + contentType.Extension
+
+	_, err = c.s3.PutObject(
+		c.config.S3Bucket,
+		c.config.S3Folder + filePath,
+		bytes.NewReader(image),
+		int64(len(image)),
+		minio.PutObjectOptions{
+			UserMetadata: map[string]string{"x-amz-acl": "public-read"},
+			ContentType:  contentType.ToString(),
+		})
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	return models.Image{
+		ID:          id,
+		ContentType: contentType.ToString(),
+	}, nil
+}
+

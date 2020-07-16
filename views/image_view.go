@@ -7,10 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"github.com/palantir/stacktrace"
+	"io"
+	"io/ioutil"
 	"strconv"
 	"strings"
 
-	image "github.com/mikibot/imghoard/services/imagehandler"
+	imagehandler "github.com/mikibot/imghoard/services/imagehandler"
 	uuid "github.com/mikibot/imghoard/services/snowflake"
 
 	jsoniter "github.com/json-iterator/go"
@@ -31,7 +33,7 @@ type ImageResult struct {
 // ImageView is the dataset for the image controller
 type ImageView struct {
 	BaseUrl string
-	Handler image.ImageHandler
+	Handler imagehandler.ImageHandler
 }
 
 type ImageSubmissionJSON struct {
@@ -110,12 +112,13 @@ func (view ImageView) PostImage(ctx *atreugo.RequestCtx) error {
 	contentType := string(ctx.Request.Header.ContentType())
 
 	var submission spaces.ImageSubmission
+
 	if strings.HasPrefix(contentType, "multipart/form-data") {
-		multiPartSubmission, err := parseMultipartImage(ctx)
+		multipartSubmission, err := view.uploadImageFromMultipart(ctx)
 		if err != nil {
 			return models.Error(ctx, 400, stacktrace.Propagate(err, ""))
 		}
-		submission = multiPartSubmission
+		submission = multipartSubmission
 	} else {
 		var jsonSubmission ImageSubmissionJSON
 		err := json.Unmarshal(ctx.PostBody(), &jsonSubmission)
@@ -132,6 +135,7 @@ func (view ImageView) PostImage(ctx *atreugo.RequestCtx) error {
 		}
 		submission.Tags = jsonSubmission.Tags
 	}
+
 	image, err := view.Handler.AddImage(submission)
 	if err != nil {
 		return models.Error(ctx, 500, stacktrace.Propagate(err, ""))
@@ -143,39 +147,6 @@ func (view ImageView) PostImage(ctx *atreugo.RequestCtx) error {
 			image.ID.ToBase64(),
 			image.Extension()),	
 	})
-}
-
-func parseMultipartImage(ctx *atreugo.RequestCtx) (spaces.ImageSubmission, error) {
-	form, err := ctx.FormFile("data")
-	if err != nil {
-		return spaces.ImageSubmission{}, models.Error(ctx, 400, stacktrace.Propagate(err, "data"))
-	}
-
-	contentLength := form.Size
-	if contentLength == 0 {
-		return spaces.ImageSubmission{}, stacktrace.Propagate(errors.New("invalid content-length"), "")
-	}
-
-	open, err := form.Open()
-	if err != nil {
-		return spaces.ImageSubmission{}, stacktrace.Propagate(err, "")
-	}
-
-	buffer := make([]byte, contentLength)
-	open.Read(buffer)
-
-	if err != nil {
-		return spaces.ImageSubmission{}, stacktrace.Propagate(err, "")
-	}
-
-	tags := strings.Split(string(ctx.FormValue("tags")), ",")
-	dataType := string(ctx.FormValue("data-type"))
-
-	return spaces.ImageSubmission{
-		ContentType: dataType,
-		Data: buffer,
-		Tags: tags,
-	}, nil
 }
 
 func parseHTTPImage(image string) (spaces.ImageSubmission, error) {
@@ -225,6 +196,39 @@ func parseHTTPImage(image string) (spaces.ImageSubmission, error) {
 		Data: decoded,
 		ContentType: string(contentType),
 		Tags: nil,
+	}, nil
+}
+
+func (i ImageView) uploadImageFromMultipart(ctx *atreugo.RequestCtx) (spaces.ImageSubmission, error) {
+	form, err := ctx.MultipartForm()
+	if err != nil {
+		return spaces.ImageSubmission{}, err
+	}
+
+	if form.File["file"] == nil {
+		return spaces.ImageSubmission{}, errors.New("cannot find file attached to form")
+	}
+	stream, err := form.File["file"][0].Open()
+	if err != nil {
+		return spaces.ImageSubmission{}, err
+	}
+
+	imageBytes, err := ioutil.ReadAll(io.Reader(stream))
+	if err != nil {
+		return spaces.ImageSubmission{}, err
+	}
+
+	imageContentType := form.Value["filetype"]
+	if len(imageContentType) == 0 || imageContentType[0] == "" {
+		return spaces.ImageSubmission{}, errors.New("validation['filetype']: is empty")
+	}
+
+	tags := strings.Split(strings.ToLower(strings.Join(form.Value["tags"], ",")), ",")
+
+	return spaces.ImageSubmission{
+		Data: imageBytes,
+		Tags: tags,
+		ContentType: imageContentType[0],
 	}, nil
 }
 

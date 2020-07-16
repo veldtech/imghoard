@@ -1,37 +1,45 @@
-package imghoard
+package snowflake
 
 import (
 	"encoding/binary"
-	"log"
-
 	"github.com/btcsuite/btcutil/base58"
 	"github.com/bwmarrin/snowflake"
 )
 
 type Snowflake snowflake.ID
 
+type IdGenerator interface {
+	Generate() Snowflake
+}
+
+// InitSnowflake generates the initial snowflakeGenerator
+func New() (IdGenerator, error) {
+	ip, err := fetchLocalIPAddressBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	gen, err := snowflake.NewNode(int64(binary.BigEndian.Uint32(ip)) % 1023)
+	if err != nil {
+		return nil, err
+	}
+
+	return Generator{
+		Node: gen,
+	}, nil
+}
+
+type Generator struct {
+	IdGenerator
+	*snowflake.Node
+}
+
+func (gen Generator) Generate() Snowflake {
+	return Snowflake(gen.Node.Generate())
+}
+
 func (sf Snowflake) ToBase64() string {
 	bytes := make([]byte, 8)
 	binary.LittleEndian.PutUint64(bytes, uint64(snowflake.ID(sf).Int64()))
 	return base58.Encode(bytes)
-}
-
-type SnowflakeService struct {
-	node *snowflake.Node
-}
-
-// InitSnowflake generates the initial snowflakeGenerator
-func InitSnowflake() *SnowflakeService {
-	gen, err := snowflake.NewNode(1)
-	if err != nil {
-		log.Panicf("Could not create snowflake generator: %s", err)
-	}
-	return &SnowflakeService{
-		node: gen,
-	}
-}
-
-// GenerateID creates a new unique id
-func (service *SnowflakeService) GenerateID() Snowflake {
-	return Snowflake(service.node.Generate())
 }
