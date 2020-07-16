@@ -5,8 +5,6 @@ import (
 	"github.com/json-iterator/go/extra"
 	"github.com/mikibot/imghoard/middleware"
 	"log"
-	"os"
-	"strconv"
 
 	framework "github.com/mikibot/imghoard/framework"
 	imagehandler "github.com/mikibot/imghoard/services/imagehandler"
@@ -26,6 +24,8 @@ func corsMiddleware(ctx *atreugo.RequestCtx) error {
 }
 
 func main() {
+	extra.SetNamingStrategy(extra.LowerCaseWithUnderscores)
+
 	log.Println("Loading config")
 	fileConfig, err := config.LoadFromFile("appconfig/secrets.json")
 	if err != nil {
@@ -33,25 +33,28 @@ func main() {
 	}
 
 	log.Print("Creating snowflake generator")
-	idGenerator := snowflake.InitSnowflake()
+	idGenerator, err := snowflake.New()
+	if err != nil {
+		log.Panic(err)
+	}
 
 	log.Println("Connecting to pg")
 	connStr := createConnectionString(fileConfig)
-	db := pg.NewDB(connStr)
+	db, err := pg.New(connStr)
+	if err != nil {
+		log.Panic(err)
+	}
 
 	err = db.Ping()
 	if err != nil {
-		log.Panicf("Could not connect to PostgreSQL because of reason: %s", err)
+		log.Panic(err)
 	}
 
-	spacesClient := spaces.New(fileConfig, uuidGen)
+	spacesClient := spaces.New(fileConfig, idGenerator)
 
 	log.Println("Opening web service")
 
-	server := atreugo.New(httpConfig)
-
-	addr := fmt.Sprintf("0.0.0.0:%d", port)
-	fmt.Print(addr)
+	addr := fmt.Sprintf("0.0.0.0:%d", 8080)
 	server := atreugo.New(&atreugo.Config{
 		Addr: addr,
 		MaxRequestBodySize: 20 * 2048 * 2048 * 2048,
@@ -63,12 +66,12 @@ func main() {
 	{
 		var imageView = images.ImageView{
 			BaseUrl: fileConfig.BaseURL,
-			Handler: imagehandler.New(baseURL, spacesClient, db),
+			Handler: imagehandler.New(fileConfig.BaseURL, spacesClient, db),
 		}
 
 		var mockImageView = images.ImageView{
-			BaseUrl: baseURL,
-			Handler: imagehandler.NewMock(baseURL, spacesClient, db),
+			BaseUrl: fileConfig.BaseURL,
+			Handler: imagehandler.NewMock(fileConfig.BaseURL, spacesClient, db),
 		}
 
 		{ // GetImage Route

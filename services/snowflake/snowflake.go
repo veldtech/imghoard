@@ -2,14 +2,8 @@ package snowflake
 
 import (
 	"encoding/binary"
-	"log"
-
 	"github.com/btcsuite/btcutil/base58"
 	"github.com/bwmarrin/snowflake"
-	"log"
-	"net"
-	"strconv"
-	"strings"
 )
 
 type Snowflake snowflake.ID
@@ -30,40 +24,18 @@ func New() (IdGenerator, error) {
 		return nil, err
 	}
 
-	return gen, nil
+	return Generator{
+		Node: gen,
+	}, nil
 }
 
-func fetchLocalIPAddressBytes() ([]byte, error) {
-	addresses, err := net.InterfaceAddrs()
-	if err != nil {
-		return nil, err
-	}
+type Generator struct {
+	IdGenerator
+	*snowflake.Node
+}
 
-	for _, addr := range addresses {
-		segments := strings.Split(addr.String(), "/")
-		if len(segments) != 2 {
-			continue
-		}
-
-		ipLen, err := strconv.Atoi(segments[1])
-		if err != nil || ipLen > 24 {
-			continue
-		}
-
-		ipBytes := strings.Split(segments[0], ".")
-		byteArray := make([]byte, 4)
-		for i, str := range ipBytes {
-			ipSegment, err := strconv.Atoi(str)
-			if err != nil {
-				continue
-			}
-			byteArray[i] = byte(ipSegment)
-		}
-
-		return byteArray, nil
-	}
-
-	return nil, errors.New("could not find any IP address")
+func (gen Generator) Generate() Snowflake {
+	return Snowflake(gen.Node.Generate())
 }
 
 func (sf Snowflake) ToBase64() string {

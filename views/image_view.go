@@ -1,21 +1,18 @@
 package imghoard
 
 import (
-	"database/sql"
-	"errors"
-	"fmt"
-	snowflake2 "github.com/mikibot/imghoard/services/snowflake"
-	"io"
-	"io/ioutil"
-	"log"
 	"bufio"
 	"bytes"
 	"encoding/base64"
+	"errors"
+	"fmt"
 	"github.com/palantir/stacktrace"
+	"io"
+	"io/ioutil"
 	"strconv"
 	"strings"
 
-	image "github.com/mikibot/imghoard/services/imagehandler"
+	imagehandler "github.com/mikibot/imghoard/services/imagehandler"
 	uuid "github.com/mikibot/imghoard/services/snowflake"
 
 	jsoniter "github.com/json-iterator/go"
@@ -36,7 +33,7 @@ type ImageResult struct {
 // ImageView is the dataset for the image controller
 type ImageView struct {
 	BaseUrl string
-	Handler image.ImageHandler
+	Handler imagehandler.ImageHandler
 }
 
 type ImageSubmissionJSON struct {
@@ -115,24 +112,29 @@ func (view ImageView) PostImage(ctx *atreugo.RequestCtx) error {
 	contentType := string(ctx.Request.Header.ContentType())
 
 	var submission spaces.ImageSubmission
-	if strings.HasPrefix(contentType), "multipart/form-data") {
-		return i.uploadImageFromMultipart(ctx)
-	} 
 
-	var jsonSubmission ImageSubmissionJSON
-	err := json.Unmarshal(ctx.PostBody(), &jsonSubmission)
-	if err != nil {
-		return models.Error(ctx, 400, stacktrace.Propagate(err, ""))
-	}
+	if strings.HasPrefix(contentType, "multipart/form-data") {
+		multipartSubmission, err := view.uploadImageFromMultipart(ctx)
+		if err != nil {
+			return models.Error(ctx, 400, stacktrace.Propagate(err, ""))
+		}
+		submission = multipartSubmission
+	} else {
+		var jsonSubmission ImageSubmissionJSON
+		err := json.Unmarshal(ctx.PostBody(), &jsonSubmission)
+		if err != nil {
+			return models.Error(ctx, 400, stacktrace.Propagate(err, ""))
+		}
 
-	if len(jsonSubmission.Data) == 0 {
-		return models.ErrorStr(ctx, 400, "image.data is empty")
+		if len(jsonSubmission.Data) == 0 {
+			return models.ErrorStr(ctx, 400, "image.data is empty")
+		}
+		submission, err = parseHTTPImage(jsonSubmission.Data)
+		if err != nil {
+			return models.Error(ctx, 400, stacktrace.Propagate(err, ""))
+		}
+		submission.Tags = jsonSubmission.Tags
 	}
-	submission, err = parseHTTPImage(jsonSubmission.Data)
-	if err != nil {
-		return models.Error(ctx, 400, stacktrace.Propagate(err, ""))
-	}
-	submission.Tags = jsonSubmission.Tags
 
 	image, err := view.Handler.AddImage(submission)
 	if err != nil {
@@ -197,46 +199,37 @@ func parseHTTPImage(image string) (spaces.ImageSubmission, error) {
 	}, nil
 }
 
-func (i ImageView) uploadImageFromMultipart(ctx *atreugo.RequestCtx) error {
+func (i ImageView) uploadImageFromMultipart(ctx *atreugo.RequestCtx) (spaces.ImageSubmission, error) {
 	form, err := ctx.MultipartForm()
 	if err != nil {
-		return err
+		return spaces.ImageSubmission{}, err
 	}
 
 	if form.File["file"] == nil {
-		return errors.New("cannot find file attached to form")
+		return spaces.ImageSubmission{}, errors.New("cannot find file attached to form")
 	}
 	stream, err := form.File["file"][0].Open()
 	if err != nil {
-		return err
+		return spaces.ImageSubmission{}, err
 	}
 
 	imageBytes, err := ioutil.ReadAll(io.Reader(stream))
 	if err != nil {
-		return err
+		return spaces.ImageSubmission{}, err
 	}
 
 	imageContentType := form.Value["filetype"]
 	if len(imageContentType) == 0 || imageContentType[0] == "" {
-		return errors.New("validation['filetype']: is empty")
+		return spaces.ImageSubmission{}, errors.New("validation['filetype']: is empty")
 	}
 
 	tags := strings.Split(strings.ToLower(strings.Join(form.Value["tags"], ",")), ",")
 
-	image, err := i.SpacesClient.UploadDataRaw(imageBytes, imageContentType[0])
-	if err != nil {
-		return err
-	}
-
-	image.Tags = tags
-	err = image.Insert(i.Db, i.Generator)
-	if err != nil {
-		return err
-	}
-
-	return ctx.JSONResponse(atreugo.JSON{
-		"file": fmt.Sprintf("%s%s.%s", i.BaseURL, snowflake.ID(image.ID).Base32(), image.Extension()),
-	})
+	return spaces.ImageSubmission{
+		Data: imageBytes,
+		Tags: tags,
+		ContentType: imageContentType[0],
+	}, nil
 }
 
 // GetTag gets a tag by ID and shows its metadata
