@@ -1,34 +1,24 @@
 package postgres
 
 import (
-	"log"
 	"database/sql"
-	migrations "github.com/mikibot/imghoard/services/postgres/migrations"
 )
 
+type Client struct {
+	*sql.DB
+}
+
 // InitDB creates the initial connection pool for the database.
-func NewDB(connStr string) *sql.DB {
+func New(connStr string) (*Client, error) {
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
-		log.Panicf("Unable to launch postgres with reason: %s", err)
+		return nil, err
 	}
-	return db
-}
+	db.SetConnMaxLifetime(0)
+	db.SetMaxIdleConns(50)
+	db.SetMaxOpenConns(50)
 
-// RunMigrations runs migrations for the database.
-func RunMigrations(connStr string) {
-	db := NewDB(connStr)
-
-	for _, migration := range []MigrationEntry{ 
-		(*migrations.Initial)(nil), 
-	} {
-		_ = migration.Up(db)
-	}
-}
-
-// MigrationEntry is used as a base interface for migrations
-type MigrationEntry interface {
-	Down(*sql.DB) error
-
-	Up(*sql.DB) error
+	return &Client{
+		DB: db,
+	}, nil
 }

@@ -2,15 +2,28 @@ package main
 
 import (
 	"fmt"
+	"github.com/json-iterator/go/extra"
+	"github.com/mikibot/imghoard/middleware"
+	"log"
+	"os"
+	"strconv"
+
+	framework "github.com/mikibot/imghoard/framework"
+	imagehandler "github.com/mikibot/imghoard/services/imagehandler"
+
 	_ "github.com/lib/pq"
 	"github.com/mikibot/imghoard/config"
 	pg "github.com/mikibot/imghoard/services/postgres"
 	"github.com/mikibot/imghoard/services/snowflake"
 	spaces "github.com/mikibot/imghoard/services/spaces"
 	images "github.com/mikibot/imghoard/views"
-	"github.com/savsgio/atreugo/v7"
-	"log"
+	"github.com/savsgio/atreugo/v9"
 )
+
+func corsMiddleware(ctx *atreugo.RequestCtx) error {
+	ctx.Response.Header.Add("Access-Control-Allow-Origin", "*")
+	return ctx.Next()
+}
 
 func main() {
 	log.Println("Loading config")
@@ -28,33 +41,59 @@ func main() {
 
 	err = db.Ping()
 	if err != nil {
-		log.Panicf("Could not connect to postgres with connection string '%s': %s", connStr, err)
+		log.Panicf("Could not connect to PostgreSQL because of reason: %s", err)
 	}
+
+	spacesClient := spaces.New(fileConfig, uuidGen)
 
 	log.Println("Opening web service")
 
-	httpConfig := &atreugo.Config{
-		Host: "0.0.0.0",
-		Port: 8080,
-		Fasthttp: &atreugo.FasthttpConfig{
-			MaxRequestBodySize: 20 * 1024 * 1024,
-		},
-	}
-
 	server := atreugo.New(httpConfig)
+
+	addr := fmt.Sprintf("0.0.0.0:%d", port)
+	fmt.Print(addr)
+	server := atreugo.New(&atreugo.Config{
+		Addr: addr,
+		MaxRequestBodySize: 20 * 2048 * 2048 * 2048,
+	})
+
+	server.UseBefore(corsMiddleware)
+	server.UseAfter(middleware.NewErrorMapper())
 
 	{
 		var imageView = images.ImageView{
-			BaseURL:      fileConfig.BaseURL,
-			Db: 		  db,
-			Generator:    idGenerator,
-			SpacesClient: spaces.New(fileConfig, idGenerator),
+			BaseUrl: fileConfig.BaseURL,
+			Handler: imagehandler.New(baseURL, spacesClient, db),
 		}
 
-		server.Path("GET", "/images", imageView.GetImage)
-		//server.Path("GET", "images/:id", imageView.GetImageByID)
-		server.Path("POST", "/images", imageView.PostImage)
-		server.Path("GET", "/tags/:id", imageView.GetTag)
+		var mockImageView = images.ImageView{
+			BaseUrl: baseURL,
+			Handler: imagehandler.NewMock(baseURL, spacesClient, db),
+		}
+
+		{ // GetImage Route
+			view := framework.New(imageView.GetImage)
+			view.AddTenancy("testing", mockImageView.GetImage)
+			server.Path("GET", "/images", view.Route)
+		}
+
+		{ // GetImageByID Route
+			view := framework.New(imageView.GetImageByID)
+			view.AddTenancy("testing", mockImageView.GetImageByID)
+			server.Path("GET", "/images/:id", view.Route)
+		}
+
+		{ // PostImage Route
+			view := framework.New(imageView.PostImage)
+			view.AddTenancy("testing", mockImageView.PostImage)
+			server.Path("POST", "/images", view.Route)
+		}
+
+		{ // GetTag Route
+			view := framework.New(imageView.GetTag)
+			view.AddTenancy("testing", mockImageView.GetTag)
+			server.Path("GET", "/tags/:id", view.Route)
+		}
 	}
 
 	err = server.ListenAndServe()

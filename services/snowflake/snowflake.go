@@ -2,7 +2,9 @@ package snowflake
 
 import (
 	"encoding/binary"
-	"errors"
+	"log"
+
+	"github.com/btcsuite/btcutil/base58"
 	"github.com/bwmarrin/snowflake"
 	"log"
 	"net"
@@ -10,20 +12,25 @@ import (
 	"strings"
 )
 
+type Snowflake snowflake.ID
+
+type IdGenerator interface {
+	Generate() Snowflake
+}
+
 // InitSnowflake generates the initial snowflakeGenerator
-func InitSnowflake() IdGenerator {
+func New() (IdGenerator, error) {
 	ip, err := fetchLocalIPAddressBytes()
+	if err != nil {
+		return nil, err
+	}
 
 	gen, err := snowflake.NewNode(int64(binary.BigEndian.Uint32(ip)) % 1023)
 	if err != nil {
-		log.Panic(err)
+		return nil, err
 	}
 
-	return gen
-}
-
-type IdGenerator interface {
-	Generate() snowflake.ID
+	return gen, nil
 }
 
 func fetchLocalIPAddressBytes() ([]byte, error) {
@@ -57,4 +64,10 @@ func fetchLocalIPAddressBytes() ([]byte, error) {
 	}
 
 	return nil, errors.New("could not find any IP address")
+}
+
+func (sf Snowflake) ToBase64() string {
+	bytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(bytes, uint64(snowflake.ID(sf).Int64()))
+	return base58.Encode(bytes)
 }

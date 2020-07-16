@@ -1,9 +1,7 @@
 package imghoard
 
 import (
-	"bufio"
 	"bytes"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"github.com/mikibot/imghoard/config"
@@ -12,58 +10,50 @@ import (
 	"strings"
 
 	models "github.com/mikibot/imghoard/models"
-	"github.com/mikibot/imghoard/services/snowflake"
+	uuid "github.com/mikibot/imghoard/services/snowflake"
 	"github.com/minio/minio-go/v6"
 )
 
-// SpacesAPIClient contains data for S3 bucket calls
-type SpacesAPIClient struct {
-	folder string
-	bucket string
-	s3 *minio.Client
-	generator snowflake.IdGenerator
+// ApiClient contains data for S3 bucket calls
+type ApiClient struct {
+	config  config.Config
+	s3      *minio.Client
+	uuidGen uuid.IdGenerator
 }
 
 // New creates and saves a DigitalOcean CDN API client.
 // TODO: maybe not wrap the minioClient now that it is changed from aws-s3
-func New(config config.Config, generator snowflake.IdGenerator) *SpacesAPIClient {
-	minioClient, err := minio.New(config.S3Endpoint, config.S3AccessKey, config.S3SecretKey, false)
+func New(config config.Config, idGenerator *uuid.SnowflakeService) *ApiClient {
+	minioClient, err := minio.New(config.Endpoint, config.AccessKey, config.SecretKey, false)
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	return &SpacesAPIClient{
-		folder: config.S3Folder,
-		bucket: config.S3Bucket,
-		s3:     minioClient,
-		generator: generator,
+
+	return &ApiClient{
+		config:  config,
+		s3:      minioClient,
+		uuidGen: idGenerator,
 	}
 }
 
 // ImageSubmission is in need of documentation
 type ImageSubmission struct {
-	Data string
+	Data []byte
 	Tags []string
+	ContentType string
 }
 
 // UploadData uploads your data to the preferred do client
-func (c *SpacesAPIClient) UploadData(image string) (models.Image, error) {
-	segments := strings.Split(image, ",")
-	if len(segments) != 2 {
-		return models.Image{}, errors.New("Invalid image payload")
+func (c *ApiClient) UploadData(image ImageSubmission) (models.Image, error) {
+	id := c.uuidGen.GenerateID()
+
+	contentType := strings.Split(image.ContentType, "/")
+	if len(contentType) < 2 {
+		return models.Image{}, errors.New("invalid content type")
 	}
 
-	var metadata = bufio.NewReader(strings.NewReader(segments[0]))
-
-	header, err := metadata.ReadBytes(':')
-	if err != nil {
-		return models.Image{}, err
-	}
-	header = bytes.Trim(header, ":")
-
-	if string(header) != "data" {
-		return models.Image{}, errors.New("header mismatch: Header does not start with 'data'")
-	}
+	filePath := fmt.Sprintf("%s.%s", id.ToBase64(), contentType[1])
 
 	contentType, err := metadata.ReadBytes(';')
 	if err != nil {
@@ -122,8 +112,8 @@ func (c *SpacesAPIClient) UploadDataRaw(image []byte, filename string) (models.I
 	filePath := id.Base32() + "." + contentType.Extension
 
 	_, err = c.s3.PutObject(
-		c.bucket,
-		c.folder + filePath,
+		c.config.S3Bucket,
+		c.config.S3Folder + filePath,
 		bytes.NewReader(image),
 		int64(len(image)),
 		minio.PutObjectOptions{
