@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: imghoard
+  labels:
+    app: imghoard
+  namespace: miki
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: imghoard
+  template:
+    metadata:
+      labels:
+        app: imghoard
+    spec:
+        containers:
+        - name: imghoard-container
+          image: mikiapp.azurecr.io/imghoard:$(tag)
+          resources:
+            limits:
+              memory: "128Mi"
+              cpu: "500m"
+          ports:
+          - containerPort: 80
+          volumeMounts:
+          - name: secret
+            mountPath: "/app/appconfig"
+            readOnly: true
+        volumes:
+          - name: secret
+            secret:
+              secretName: imghoard-secret
+              defaultMode: 0400
+        imagePullSecrets:
+        - name: mikiapp
