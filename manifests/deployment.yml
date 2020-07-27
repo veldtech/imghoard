@@ -4,6 +4,7 @@ metadata:
   name: imghoard
   labels:
     app: imghoard
+  namespace: miki
 spec:
   replicas: 3
   selector:
@@ -16,16 +17,16 @@ spec:
     spec:
         containers:
         - name: imghoard-container
-          image: mikiapp.azurecr.io/imghoard:$(tag)
+          image: mikiapp.azurecr.io/imghoard:1068
           resources:
             limits:
               memory: "128Mi"
               cpu: "500m"
           ports:
-          - containerPort: 80
+          - containerPort: 8080
           volumeMounts:
           - name: secret
-            mountPath: "/app/appconfig"
+            mountPath: "/go/src/app/appconfig"
             readOnly: true
         volumes:
           - name: secret
