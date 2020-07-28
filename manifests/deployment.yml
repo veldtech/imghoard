@@ -4,7 +4,6 @@ metadata:
   name: imghoard
   labels:
     app: imghoard
-  namespace: miki
 spec:
   replicas: 3
   selector:
