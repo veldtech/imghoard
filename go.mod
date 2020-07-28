@@ -6,7 +6,6 @@ require (
 	github.com/btcsuite/btcutil v0.0.0-20190425235716-9e5f4b9a998d
 	github.com/bwmarrin/snowflake v0.0.0-20180412010544-68117e6bbede
 	github.com/getsentry/sentry-go v0.7.0
-	github.com/golang/protobuf v1.3.3
 	github.com/gopherjs/gopherjs v0.0.0-20191106031601-ce3c9ade29de // indirect
 	github.com/joho/godotenv v1.3.0
 	github.com/json-iterator/go v1.1.9

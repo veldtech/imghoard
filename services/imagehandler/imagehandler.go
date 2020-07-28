@@ -2,7 +2,6 @@ package imghoard
 
 import (
 	"database/sql"
-	"errors"
 	"github.com/lib/pq"
 	models "github.com/mikibot/imghoard/models"
 	"github.com/mikibot/imghoard/services/postgres"
