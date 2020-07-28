@@ -18,7 +18,7 @@ import (
 	jsoniter "github.com/json-iterator/go"
 	models "github.com/mikibot/imghoard/models"
 	spaces "github.com/mikibot/imghoard/services/spaces"
-	"github.com/savsgio/atreugo/v9"
+	"github.com/savsgio/atreugo/v11"
 )
 
 var json = jsoniter.ConfigFastest
@@ -60,22 +60,37 @@ func (view ImageView) GetImage(ctx *atreugo.RequestCtx) error {
 		tags := strings.Split(string(args.Peek("tags")), " ")
 		i, err := view.Handler.FindImages(tags, 100, page*100)
 		if err != nil {
-			return models.Error(ctx, 500, stacktrace.Propagate(err, ""))
+			return models.Error(ctx, 500, stacktrace.Propagate(err, "could not find images"))
 		}
 		images = i
 	} else {
 		i, err := view.Handler.GetImages(100, page*100)
 		if err != nil {
-			return models.Error(ctx, 500, stacktrace.Propagate(err, ""))
+			return models.Error(ctx, 500, stacktrace.Propagate(err, "could not get images"))
 		}
 		images = i
 	}
 
-	if images == nil ||
-		len(images) == 0 {
+	if images == nil || len(images) == 0 {
 		return models.ErrorStr(ctx, 404, "no images found")
 	}
 	return models.JSON(ctx, view.toImageResult(images))
+}
+
+func (view ImageView) GetRandomImage(ctx *atreugo.RequestCtx) error {
+	args := ctx.QueryArgs()
+
+	var tags []string = nil;
+	if args.Has("tags") {
+		tags = strings.Split(string(args.Peek("tags")), " ")
+	}
+
+	image, err := view.Handler.GetRandomImage(tags)
+	if err != nil {
+		return stacktrace.Propagate(err, "no random image returned")
+	}
+
+	return models.JSON(ctx, view.toImageResponse(image))
 }
 
 // GetImageByID gets a specific image by ID
@@ -85,6 +100,7 @@ func (view ImageView) GetImageByID(ctx *atreugo.RequestCtx) error {
 	if !ok {
 		return models.ErrorStr(ctx, 400, "no 'id' parameter was provided")
 	}
+
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
 		return models.Error(ctx, 400, stacktrace.Propagate(err, ""))
@@ -98,11 +114,7 @@ func (view ImageView) GetImageByID(ctx *atreugo.RequestCtx) error {
 		return models.ErrorStr(ctx, 404, "no image was found")
 	}
 
-	return models.JSON(ctx, ImageResult{
-		Id:   image.ID,
-		Url:  image.ImageURL(view.BaseUrl),
-		Tags: image.Tags,
-	})
+	return models.JSON(ctx, view.toImageResponse(image))
 }
 
 // PostImage allows you to upload an image and set the tags
@@ -247,11 +259,15 @@ func (view ImageView) PatchTag(ctx *atreugo.RequestCtx) error {
 func (view ImageView) toImageResult(images []models.Image) []ImageResult {
 	result := make([]ImageResult, len(images))
 	for i := 0; i < len(images); i++ {
-		result[i] = ImageResult{
-			Id:   images[i].ID,
-			Tags: images[i].Tags,
-			Url:  images[i].ImageURL(view.BaseUrl),
-		}
+		result[i] = view.toImageResponse(images[i])
 	}
 	return result
+}
+
+func (view ImageView) toImageResponse(image models.Image) ImageResult {
+	return ImageResult{
+		Id:   image.ID,
+		Tags: image.Tags,
+		Url:  image.ImageURL(view.BaseUrl),
+	}
 }

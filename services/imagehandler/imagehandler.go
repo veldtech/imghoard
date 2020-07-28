@@ -2,6 +2,7 @@ package imghoard
 
 import (
 	"database/sql"
+	"errors"
 	"github.com/lib/pq"
 	models "github.com/mikibot/imghoard/models"
 	"github.com/mikibot/imghoard/services/postgres"
@@ -14,6 +15,7 @@ type ReadImageHandler interface {
 	GetBaseURL() string
 	FindImages(tags []string, amount int, offset int) ([]models.Image, error)
 	GetImage(id uuid.Snowflake) (models.Image, error)
+	GetRandomImage(tags []string) (models.Image, error)
 	GetImages(amount int, offset int) ([]models.Image, error)
 }
 
@@ -131,6 +133,13 @@ func (handler *service) GetImage(id uuid.Snowflake) (models.Image, error) {
 	return images[0], nil
 }
 
+func (handler *service) GetRandomImage(tags []string) (models.Image, error) {
+	if tags == nil || len(tags) == 0 {
+		return handler.getRandomImage()
+	}
+	return handler.getRandomImageWithTags(tags)
+}
+
 func (handler *service) GetImages(amount int, offset int) ([]models.Image, error) {
 	rows, err := handler.database.Query(`select f.id, f.contentType, array(select t.name from image_tags 
 		it join tag t on it.tag_id = t.id where it.image_id = f.id) as tags	 
@@ -159,6 +168,53 @@ func (handler *service) FindImages(tags []string, amount int, offset int) ([]mod
 		return nil, stacktrace.Propagate(err, "")
 	}
 	return images, nil
+}
+
+func (handler *service) getRandomImage() (models.Image, error) {
+	rows, err := handler.database.Query(`select 
+    f.id, 
+    f.contentType, 
+    array(select t.name from image_tags it join tag t on it.tag_id = t.id where it.image_id = f.id) as tags	 
+from image f
+ORDER BY random()
+LIMIT 1;`)
+	if err != nil {
+		return models.Image{}, stacktrace.Propagate(err, "database query failed")
+	}
+
+	images, err := fetchImages(rows)
+	if err != nil {
+		return models.Image{}, stacktrace.Propagate(err, "database rows could not be fetched")
+	}
+
+	if len(images) == 0 {
+		return models.Image{}, nil
+	}
+	return images[0], nil
+}
+
+func (handler *service) getRandomImageWithTags(tags []string) (models.Image, error) {
+	rows, err := handler.database.Query(`select 
+    f.id, 
+    f.contentType, 
+    array(select t.name from image_tags it join tag t on it.tag_id = t.id where it.image_id = f.id) as tags	 
+from image f
+WHERE $1 <@ array(select t.name from image_tags it join tag t on it.tag_id = t.id where it.image_id = f.id)
+ORDER BY random()
+LIMIT 1;`, pq.Array(tags))
+	if err != nil {
+		return models.Image{}, stacktrace.Propagate(err, "")
+	}
+
+	images, err := fetchImages(rows)
+	if err != nil {
+		return models.Image{}, stacktrace.Propagate(err, "")
+	}
+
+	if len(images) == 0 {
+		return models.Image{}, nil
+	}
+	return images[0], nil
 }
 
 func fetchImages(rows *sql.Rows) ([]models.Image, error) {

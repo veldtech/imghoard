@@ -19,3 +19,8 @@ appconfig/secrets.json
 .vscode/
 
 vendor/
+
+manifests/
+!manifests/deployment.yml
+!manifests/ingress.yml
+!manifests/service.yml

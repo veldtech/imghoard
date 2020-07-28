@@ -2,7 +2,7 @@ package imghoard
 
 import (
 	"github.com/palantir/stacktrace"
-	"github.com/savsgio/atreugo/v9"
+	"github.com/savsgio/atreugo/v11"
 )
 
 // ErrorResponse is the default error

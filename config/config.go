@@ -14,4 +14,6 @@ type Config struct {
 	S3Endpoint string		`json:"s3_endpoint"`
 	S3Folder string			`json:"s3_folder"`
 	S3Bucket string			`json:"s3_bucket"`
+
+	SentryDsn string		`json:"sentry_dsn"`
 }

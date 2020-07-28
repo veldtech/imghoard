@@ -1,7 +1,7 @@
 package imghoard
 
 import (
-	"github.com/savsgio/atreugo/v9"
+	"github.com/savsgio/atreugo/v11"
 )
 
 const DefaultRoute = "_router:default"

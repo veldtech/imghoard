@@ -4,18 +4,20 @@ import (
 	"fmt"
 	"github.com/json-iterator/go/extra"
 	"github.com/mikibot/imghoard/middleware"
+	models "github.com/mikibot/imghoard/models"
 	"log"
 
 	framework "github.com/mikibot/imghoard/framework"
 	imagehandler "github.com/mikibot/imghoard/services/imagehandler"
 
+	"github.com/getsentry/sentry-go"
 	_ "github.com/lib/pq"
 	"github.com/mikibot/imghoard/config"
 	pg "github.com/mikibot/imghoard/services/postgres"
 	"github.com/mikibot/imghoard/services/snowflake"
 	spaces "github.com/mikibot/imghoard/services/spaces"
 	images "github.com/mikibot/imghoard/views"
-	"github.com/savsgio/atreugo/v9"
+	"github.com/savsgio/atreugo/v11"
 )
 
 func corsMiddleware(ctx *atreugo.RequestCtx) error {
@@ -30,6 +32,11 @@ func main() {
 	fileConfig, err := config.LoadFromFile("appconfig/secrets.json")
 	if err != nil {
 		log.Panicf("Error loading .env file: %s", err)
+	}
+
+	err = sentry.Init(sentry.ClientOptions{Dsn: fileConfig.SentryDsn})
+	if err != nil {
+		log.Println("Sentry was not initialized for reason: " + err.Error())
 	}
 
 	log.Print("Creating snowflake generator")
@@ -55,9 +62,17 @@ func main() {
 	log.Println("Opening web service")
 
 	addr := fmt.Sprintf("0.0.0.0:%d", 8080)
-	server := atreugo.New(&atreugo.Config{
+	server := atreugo.New(atreugo.Config{
 		Addr: addr,
 		MaxRequestBodySize: 20 * 2048 * 2048 * 2048,
+		ErrorView: func(ctx *atreugo.RequestCtx, err error, i int) {
+
+			_ = middleware.HandleSentryEvent(ctx, err)
+			_ = ctx.JSONResponse(models.ErrorResponse{
+				Message: "Internal Server Error",
+				RequestId: ctx.ID(),
+			})
+		},
 	})
 
 	server.UseBefore(corsMiddleware)
@@ -80,10 +95,16 @@ func main() {
 			server.Path("GET", "/images", view.Route)
 		}
 
+		{ // GetRandomImage Route
+			view := framework.New(imageView.GetRandomImage)
+			view.AddTenancy("testing", mockImageView.GetRandomImage)
+			server.Path("GET", "/images/random", view.Route)
+		}
+
 		{ // GetImageByID Route
 			view := framework.New(imageView.GetImageByID)
 			view.AddTenancy("testing", mockImageView.GetImageByID)
-			server.Path("GET", "/images/:id", view.Route)
+			server.Path("GET", "/images/{id:\\d+}", view.Route)
 		}
 
 		{ // PostImage Route
