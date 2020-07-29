@@ -16,7 +16,7 @@ spec:
     spec:
         containers:
         - name: imghoard-container
-          image: mikiapp.azurecr.io/imghoard:1068
+          image: mikiapp.azurecr.io/imghoard:$(tag)
           resources:
             limits:
               memory: "128Mi"
