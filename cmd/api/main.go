@@ -20,12 +20,16 @@ import (
 	"github.com/savsgio/atreugo/v11"
 )
 
+const VERSION = "1.0.0"
+
 func corsMiddleware(ctx *atreugo.RequestCtx) error {
 	ctx.Response.Header.Add("Access-Control-Allow-Origin", "*")
 	return ctx.Next()
 }
 
 func main() {
+	log.Println("Starting Imghoard v" + VERSION)
+
 	extra.SetNamingStrategy(extra.LowerCaseWithUnderscores)
 
 	log.Println("Loading config")
@@ -77,6 +81,7 @@ func main() {
 
 	server.UseBefore(corsMiddleware)
 	server.UseAfter(middleware.NewErrorMapper())
+	server.UseAfter(middleware.NewRequestLogger());
 
 	{
 		var imageView = images.ImageView{

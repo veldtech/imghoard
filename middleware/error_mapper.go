@@ -17,7 +17,7 @@ func NewErrorMapper() atreugo.Middleware {
 func handleErrorMapping(ctx *atreugo.RequestCtx) error {
 	code := ctx.Response.StatusCode()
 	if code >= 200 && code < 300 {
-		return nil
+		return ctx.Next()
 	}
 
 	return ctx.JSONResponse(imghoard.ErrorResponse{
