@@ -4,7 +4,6 @@ metadata:
   name: imghoard-ingress
   annotations:
     kubernetes.io/ingress.class: traefik
-    traefik.ingress.kubernetes.io/router.middlewares: default-imghoard-replacepathregex@kubernetescrd
 spec:
   rules:
   - http:
