@@ -32,5 +32,3 @@ spec:
             secret:
               secretName: imghoard-secret
               defaultMode: 0400
-        imagePullSecrets:
-        - name: imghoard-secret
