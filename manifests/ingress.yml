@@ -1,14 +1,12 @@
-apiVersion: extensions/v1beta1
-kind: Ingress
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
 metadata:
   name: imghoard-ingress
-  annotations:
-    kubernetes.io/ingress.class: traefik
 spec:
-  rules:
-  - http:
-      paths:
-      - path: /images
-        backend:
-          serviceName: imghoard
-          servicePort: 80
+  routes:
+    - match: Host(`api.miki.bot`) && PathPrefix(`/images`)
+      kind: Rule
+      services:
+        - kind: Service
+          name: imghoard
+          port: 80
