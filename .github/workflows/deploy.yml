@@ -34,5 +34,5 @@ jobs:
             manifests/deployment.yml
             manifests/service.yml
             manifests/ingress.yml
-          images: docker.pkg.github.com/mikibot/imghoard/imghoard:${{ github.run_id }}
+          images: ghcr.io/veldtech/imghoard/imghoard:${{ github.run_id }}
           

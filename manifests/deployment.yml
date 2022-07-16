@@ -16,7 +16,7 @@ spec:
     spec:
         containers:
         - name: imghoard-container
-          image: docker.pkg.github.com/mikibot/imghoard/imghoard:0
+          image: ghcr.io/veldtech/imghoard/imghoard:0
           resources:
             limits:
               memory: "128Mi"
