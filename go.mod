@@ -14,11 +14,9 @@ require (
 	github.com/minio/minio-go/v6 v6.0.40
 	github.com/palantir/stacktrace v0.0.0-20161112013806-78658fd2d177
 	github.com/savsgio/atreugo/v11 v11.5.0
+	github.com/savsgio/atreugo/v7 v7.1.2
 	github.com/smartystreets/assertions v1.0.1 // indirect
-	github.com/smartystreets/goconvey v1.6.4 // indirect
-	github.com/stretchr/testify v1.4.0 // indirect
-	golang.org/x/crypto v0.0.0-20191108224745-0a56756db3fa // indirect
-	golang.org/x/text v0.3.2 // indirect
+	golang.org/x/crypto v0.1.0 // indirect
 	gopkg.in/check.v1 v1.0.0-20190902080502-41f04d3bba15 // indirect
 	gopkg.in/ini.v1 v1.50.0 // indirect
 )
